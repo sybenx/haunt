@@ -1,24 +1,15 @@
 /* ============================================================
-   hearth — talks to one bothy relay, in one group, with chat and
-   a voice call. No channels, no DMs, no QR login, no invites, no
-   profile editing, no group switching, no video, no screen share.
-   Those are designed (see the mocks in the repo root) and they
-   come later.
+   hearth — talks to one bothy relay, in one group, with chat, a
+   voice call, and the way in: invite links the owner mints inside
+   the app, redeemed on arrival. No channels, no DMs, no QR device
+   pairing, no group switching, no video, no screen share. Those
+   are designed (see the mocks in the repo root) and they come
+   later. Event kinds live in kinds.js.
    ============================================================ */
 
 const GROUP_ID = "_";
 const SUB_ID = "hearth";
 
-// Ephemeral (NIP-01: kinds 20000-29999 aren't stored by relays)
-// signalling for the voice call. 25050 carries offers, answers and
-// ICE candidates, addressed to one peer via a p tag. 25051 is call
-// presence — who's at the hearth right now — which is deliberately
-// not the same thing as group membership: membership is a standing
-// kind-9000 grant from the relay owner, presence is "still sending
-// heartbeats in the last few seconds." There's no NIP for either of
-// these; 25051 just sits next to the signalling kind.
-const SIGNAL_KIND = 25050;
-const PRESENCE_KIND = 25051;
 const HEARTBEAT_MS = 5000;
 const PRESENCE_TIMEOUT_MS = 13000;
 
@@ -47,6 +38,19 @@ const msgInput = document.getElementById("msgInput");
 const sendBtn = document.getElementById("sendBtn");
 const devWarnEl = document.getElementById("devWarn");
 const callWarnEl = document.getElementById("callWarn");
+const joinRefusedEl = document.getElementById("joinRefused");
+const joinRefusedMsgEl = document.getElementById("joinRefusedMsg");
+const namePromptEl = document.getElementById("namePrompt");
+const nameInput = document.getElementById("nameInput");
+const nameSubmitBtn = document.getElementById("nameSubmit");
+const inviteBtn = document.getElementById("inviteBtn");
+const invitePanelEl = document.getElementById("invitePanel");
+const newInviteBtn = document.getElementById("newInviteBtn");
+const inviteLinkRowEl = document.getElementById("inviteLinkRow");
+const inviteLinkTextEl = document.getElementById("inviteLinkText");
+const copyInviteBtn = document.getElementById("copyInviteBtn");
+const shareInviteBtn = document.getElementById("shareInviteBtn");
+const inviteListEl = document.getElementById("inviteList");
 const hearthEl = document.getElementById("hearth");
 const hearthLabelEl = document.getElementById("hearthLabel");
 const hRingEl = document.getElementById("hRing");
@@ -65,27 +69,94 @@ groupLabel.textContent = GROUP_ID;
 /* ============================================================
    identity
 
-   The keypair is minted once and kept in localStorage. That's a
-   placeholder: it means the key never leaves this browser profile,
-   can be wiped by clearing site data, and can't be carried to a
-   second device. The mocks already design what replaces it — the
-   "show my code" / "scan a code" QR pairing in client-mobile.html,
-   which moves a key between devices instead of minting a new one
-   per browser. This build doesn't touch that; it just leaves the
-   key sitting in the one place a static page without a signing
-   extension has to put it.
+   A keypair, acquired from the first source that has one. The
+   sources are an ordered list because acquisition is a seam:
+   today a key is found in storage or minted fresh, and later it
+   will also arrive by transfer from a device the person already
+   owns — that lands as one more entry in the list, not as a
+   rewrite of the callers.
+
+   At rest the private key is ciphertext in IndexedDB, sealed
+   under a non-extractable AES-GCM key stored beside it. Script
+   on this origin can *use* the sealing key but can never read it
+   out, so nothing that exfiltrates storage gets a usable key —
+   which is as close to "the key never leaves this device" as a
+   plain page without hardware keys can get. The key still can't
+   be carried to a second device; QR pairing (client-mobile.html)
+   is what will do that.
    ============================================================ */
-function loadOrCreateIdentity() {
-  const stored = localStorage.getItem("hearth:privkey");
-  if (stored) {
-    const privkey = S.utils.hexToBytes(stored);
-    const pubkey = S.utils.bytesToHex(S.schnorr.getPublicKey(privkey));
-    return { privkey, pubkey };
+const IDB_NAME = "hearth";
+const IDB_STORE = "identity";
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbGet(db, key) {
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(IDB_STORE).objectStore(IDB_STORE).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbPut(db, key, value) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function loadSealedPrivkey() {
+  const db = await idbOpen();
+  const sealKey = await idbGet(db, "sealKey");
+  const sealed = await idbGet(db, "privkey");
+  db.close();
+  if (!sealKey || !sealed) return null;
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: sealed.iv }, sealKey, sealed.ciphertext);
+  return new Uint8Array(plain);
+}
+
+async function storeSealedPrivkey(privkey) {
+  // IndexedDB is evictable under storage pressure unless the origin
+  // is persisted, and evicting this store is losing the identity.
+  // Best-effort: browsers variously grant silently, prompt, or
+  // refuse, and a refusal changes the odds rather than the design.
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(() => {});
   }
-  const privkey = S.utils.randomPrivateKey();
-  localStorage.setItem("hearth:privkey", S.utils.bytesToHex(privkey));
-  const pubkey = S.utils.bytesToHex(S.schnorr.getPublicKey(privkey));
-  return { privkey, pubkey };
+  const sealKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, sealKey, privkey);
+  const db = await idbOpen();
+  await idbPut(db, "sealKey", sealKey);
+  await idbPut(db, "privkey", { iv, ciphertext });
+  db.close();
+}
+
+function identityFromPrivkey(privkey) {
+  return { privkey, pubkey: S.utils.bytesToHex(S.schnorr.getPublicKey(privkey)) };
+}
+
+async function storedIdentitySource() {
+  // Earlier builds kept the key as plaintext hex in localStorage.
+  // Seal it properly and destroy the readable copy, once.
+  const legacy = localStorage.getItem("hearth:privkey");
+  if (legacy) {
+    const privkey = S.utils.hexToBytes(legacy);
+    await storeSealedPrivkey(privkey);
+    localStorage.removeItem("hearth:privkey");
+    return identityFromPrivkey(privkey);
+  }
+  const privkey = await loadSealedPrivkey();
+  return privkey ? identityFromPrivkey(privkey) : null;
 }
 
 /* ------------------------------------------------------------
@@ -121,15 +192,32 @@ async function loadDevIdentity(index) {
   return { privkey, pubkey };
 }
 
-async function resolveIdentity() {
+async function devIdentitySource() {
   const devParam = new URLSearchParams(location.search).get("dev");
-  if (!devParam) return loadOrCreateIdentity();
+  if (!devParam) return null;
   try {
     return await loadDevIdentity(parseInt(devParam, 10));
   } catch (err) {
-    showDevWarning("[dev] " + err.message + " — using a normal generated identity instead.");
-    return loadOrCreateIdentity();
+    showDevWarning("[dev] " + err.message + " — using a normal identity instead.");
+    return null;
   }
+}
+
+// Tried in order; device-to-device key transfer will slot in after
+// storage when it exists. Minting is the fallthrough rather than a
+// source: it is what happens when nobody has this person's key, and
+// it happens silently — nobody is ever asked to produce or paste
+// key material, in either direction.
+const identitySources = [devIdentitySource, storedIdentitySource];
+
+async function acquireIdentity() {
+  for (const source of identitySources) {
+    const found = await source();
+    if (found) return found;
+  }
+  const privkey = S.utils.randomPrivateKey();
+  await storeSealedPrivkey(privkey);
+  return identityFromPrivkey(privkey);
 }
 
 function showDevWarning(text) {
@@ -171,28 +259,73 @@ function colorFor(pubkey) {
 }
 
 /* ============================================================
-   relay address
+   relay address, and the invite link
 
-   Priority: ?relay=<host> in the URL, then the page's own origin
-   when it was served by the relay itself, then the manual box.
+   A link looks like "#relay=<host>&code=<code>". Both parts ride
+   in the fragment: the code because it is a single-use bearer
+   token and a fragment never reaches a server log, a proxy, or a
+   Referer header; the relay because it is going the same place
+   anyway. When hearth was served by the relay itself the link
+   carries no relay at all — the page's own origin says it.
+
+   Relay priority: the fragment, then ?relay=<host> in the query
+   (the dev workflow), then the relays this device has connected
+   to before, then the page's own origin, then the manual box.
    The manual box is the fallback path, not the front door.
+
+   Remembered relays sit above the origin because the origin is
+   only a bootstrap — right when the relay itself served the page,
+   wrong when a canonical copy did. A relay this device has
+   actually reached is the better guess, and holding the list on
+   the device is what will later let a group's second relay be
+   tried when its first is down. Trying them in turn isn't built
+   yet; the newest one is used.
    ============================================================ */
+function parseFragment() {
+  return new URLSearchParams(location.hash.slice(1));
+}
+
+function rememberedRelays() {
+  try {
+    const list = JSON.parse(localStorage.getItem("hearth:relays"));
+    return Array.isArray(list) ? list : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function rememberRelay(relayUrl) {
+  const list = [relayUrl, ...rememberedRelays().filter((u) => u !== relayUrl)];
+  localStorage.setItem("hearth:relays", JSON.stringify(list));
+}
+
 function relayUrlFromHost(host) {
   if (host.includes("://")) return host;
   return "wss://" + host;
 }
 
+// wss -> https, ws -> http: the same server, spoken to over fetch
+// instead of a websocket — NIP-11 and the management API live there.
+function relayHttpUrl(relayUrl) {
+  return relayUrl.replace(/^ws/, "http");
+}
+
 function resolveRelayUrl() {
-  const params = new URLSearchParams(location.search);
-  const fromParam = params.get("relay");
+  const fromFragment = parseFragment().get("relay");
+  if (fromFragment) return relayUrlFromHost(fromFragment);
+
+  const fromParam = new URLSearchParams(location.search).get("relay");
   if (fromParam) return relayUrlFromHost(fromParam);
+
+  const remembered = rememberedRelays();
+  if (remembered.length > 0) return remembered[0];
 
   if (location.protocol === "http:" || location.protocol === "https:") {
     const scheme = location.protocol === "https:" ? "wss:" : "ws:";
     return scheme + "//" + location.host;
   }
 
-  return null; // opened from disk with nothing to go on — fall back to the manual box
+  return null; // arrived with nothing to go on — fall back to the manual box
 }
 
 /* ============================================================
@@ -204,6 +337,9 @@ let needsResubscribe = false;
 const outbox = new Map(); // event id -> { el, event }
 let reconnectDelay = 2000;
 let reconnectTimer = null;
+let currentRelayUrl = null;
+let inviteCode = null; // a code from the fragment, pending until the relay answers
+let halted = false; // a refused invite is final — no reconnect loop behind it
 
 function setStatus(text, kind) {
   statusLine.textContent = text;
@@ -223,9 +359,18 @@ function connect(relayUrl) {
 
   ws.addEventListener("open", () => {
     reconnectDelay = 2000;
-    setStatus("connected — joining #" + GROUP_ID + "…");
-    subscribe();
-    setComposerEnabled(true);
+    rememberRelay(relayUrl);
+    if (inviteCode) {
+      // Redemption comes before anything else — before subscribing,
+      // and before the person is asked for so much as a name. Nobody
+      // should type their name into a link that turns out to be spent.
+      setStatus("presenting your invite…");
+      sendJoinRequest(inviteCode);
+    } else {
+      setStatus("connected — joining #" + GROUP_ID + "…");
+      subscribe();
+      setComposerEnabled(true);
+    }
   });
 
   ws.addEventListener("message", (evt) => {
@@ -241,6 +386,7 @@ function connect(relayUrl) {
 
   ws.addEventListener("close", () => {
     setComposerEnabled(false);
+    if (halted) return;
     setStatus("disconnected — retrying…", "warn");
     reconnectTimer = setTimeout(() => connect(relayUrl), reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 1.5, 15000);
@@ -254,9 +400,10 @@ function connect(relayUrl) {
 
 function subscribe() {
   ws.send(JSON.stringify(["REQ", SUB_ID,
-    { kinds: [9], "#h": [GROUP_ID], limit: 50 },
-    { kinds: [PRESENCE_KIND], "#h": [GROUP_ID] },
-    { kinds: [SIGNAL_KIND], "#h": [GROUP_ID], "#p": [identity.pubkey] },
+    { kinds: [KINDS.CHAT], "#h": [GROUP_ID], limit: 50 },
+    { kinds: [KINDS.PROFILE], "#h": [GROUP_ID] },
+    { kinds: [KINDS.CALL_PRESENCE], "#h": [GROUP_ID] },
+    { kinds: [KINDS.CALL_SIGNAL], "#h": [GROUP_ID], "#p": [identity.pubkey] },
   ]));
 }
 
@@ -265,9 +412,10 @@ async function handleFrame(frame, relayUrl) {
 
   if (type === "EVENT" && frame[1] === SUB_ID) {
     const event = frame[2];
-    if (event.kind === 9) renderIncoming(event);
-    else if (event.kind === PRESENCE_KIND) handlePresence(event);
-    else if (event.kind === SIGNAL_KIND) handleSignal(event);
+    if (event.kind === KINDS.CHAT) renderIncoming(event);
+    else if (event.kind === KINDS.PROFILE) handleProfile(event);
+    else if (event.kind === KINDS.CALL_PRESENCE) handlePresence(event);
+    else if (event.kind === KINDS.CALL_SIGNAL) handleSignal(event);
     return;
   }
 
@@ -294,7 +442,7 @@ async function handleFrame(frame, relayUrl) {
     authState = "pending";
     setStatus("authenticating with relay…");
     const authEvent = await finalizeEvent({
-      kind: 22242,
+      kind: KINDS.CLIENT_AUTH,
       tags: [["relay", relayUrl], ["challenge", challenge]],
     });
     outbox.set(authEvent.id, { kind: "auth" });
@@ -317,13 +465,59 @@ async function handleFrame(frame, relayUrl) {
           subscribe();
         }
         for (const [id, e] of outbox) {
-          if ((e.kind === "message" || e.kind === "ephemeral") && e.lastReason && e.lastReason.startsWith("auth-required")) {
+          if (e.lastReason && e.lastReason.startsWith("auth-required")) {
             ws.send(JSON.stringify(["EVENT", e.event]));
           }
         }
       } else {
         authState = "failed";
         setStatus("relay refused authentication: " + message, "warn");
+      }
+      return;
+    }
+
+    if (entry.kind === "join") {
+      outbox.delete(eventId);
+      if (ok) {
+        // An empty message is a fresh admission; "already a member of
+        // this group" is this key coming back with a code it didn't
+        // need, which leaves the code unspent. Only the fresh member
+        // gets asked their name.
+        finishJoin(message === "");
+      } else {
+        // Shown verbatim. The relay's refusal is deliberately uniform
+        // across unknown, spent, expired and revoked codes, so nothing
+        // is added here: a more specific message would be a guess, and
+        // a friendlier one would leak what the relay chose not to.
+        refuseJoin(message || "the relay refused the invite");
+      }
+      return;
+    }
+
+    if (entry.kind === "profile") {
+      if (ok) {
+        outbox.delete(eventId);
+      } else if (message && message.startsWith("auth-required") && authState !== "failed") {
+        entry.lastReason = message;
+      } else {
+        outbox.delete(eventId);
+        showBanner("your name wasn't saved: " + (message || "no reason given"));
+      }
+      return;
+    }
+
+    if (entry.kind === "invite") {
+      if (ok) {
+        outbox.delete(eventId);
+        newInviteBtn.disabled = false;
+        showInviteLink(entry.code);
+        refreshInviteList();
+      } else if (message && message.startsWith("auth-required") && authState !== "failed") {
+        entry.lastReason = message;
+      } else {
+        outbox.delete(eventId);
+        newInviteBtn.disabled = false;
+        showBanner("invite refused: " + (message || "no reason given"));
       }
       return;
     }
@@ -352,10 +546,56 @@ async function handleFrame(frame, relayUrl) {
         outbox.delete(eventId);
         // a dropped ICE candidate or presence beat stalls the call with no
         // error unless we say so here — this is that "say so".
-        showCallWarning(entry.label + " refused: " + (message || "no reason given"));
+        showBanner("[call] " + entry.label + " refused: " + (message || "no reason given"));
       }
     }
   }
+}
+
+/* ============================================================
+   profiles — who each pubkey asked to be called
+
+   A kind 0, tagged into the group so only the group can read it.
+   Replaceable, so the newest wins; the map tracks created_at to
+   keep an old one arriving late from clobbering a rename.
+   ============================================================ */
+const profiles = new Map(); // pubkey -> { name, at }
+
+function displayName(pubkey) {
+  const p = profiles.get(pubkey);
+  return p ? p.name : shortName(pubkey);
+}
+
+function initials(pubkey) {
+  const p = profiles.get(pubkey);
+  return (p ? p.name : shortName(pubkey)).slice(0, 2);
+}
+
+function handleProfile(event) {
+  let name;
+  try {
+    name = JSON.parse(event.content).name;
+  } catch (e) {
+    return;
+  }
+  if (typeof name !== "string" || name.trim() === "") return;
+  const existing = profiles.get(event.pubkey);
+  if (existing && existing.at >= event.created_at) return;
+  profiles.set(event.pubkey, { name: name.trim(), at: event.created_at });
+  applyProfile(event.pubkey);
+}
+
+// Message rows already on screen were rendered before this name
+// arrived (or under an older one) — restyle them in place. The
+// hearth rebuilds itself wholesale, so one render call covers it.
+function applyProfile(pubkey) {
+  for (const el of document.querySelectorAll('[data-name-for="' + pubkey + '"]')) {
+    el.textContent = displayName(pubkey);
+  }
+  for (const el of document.querySelectorAll('[data-av-for="' + pubkey + '"]')) {
+    el.textContent = initials(pubkey);
+  }
+  renderHearth();
 }
 
 /* ============================================================
@@ -370,7 +610,8 @@ function messageRow(pubkey, text, time, mine) {
   const av = document.createElement("div");
   av.className = "av";
   av.style.background = colorFor(pubkey);
-  av.textContent = shortName(pubkey).slice(0, 2);
+  av.dataset.avFor = pubkey;
+  av.textContent = initials(pubkey);
 
   const body = document.createElement("div");
   body.className = "mBody";
@@ -379,7 +620,8 @@ function messageRow(pubkey, text, time, mine) {
   head.className = "mHead";
   const name = document.createElement("span");
   name.className = "mName";
-  name.textContent = shortName(pubkey);
+  name.dataset.nameFor = pubkey;
+  name.textContent = displayName(pubkey);
   const tm = document.createElement("span");
   tm.className = "mTime";
   tm.textContent = time;
@@ -434,7 +676,7 @@ function markFailed(el, reason) {
    sending
    ============================================================ */
 async function sendMessage(text) {
-  const event = await finalizeEvent({ kind: 9, tags: [["h", GROUP_ID]], content: text });
+  const event = await finalizeEvent({ kind: KINDS.CHAT, tags: [["h", GROUP_ID]], content: text });
   seenIds.add(event.id);
 
   const row = messageRow(event.pubkey, event.content, formatTime(event.created_at), true);
@@ -465,7 +707,237 @@ msgInput.addEventListener("keydown", (e) => {
 });
 
 /* ============================================================
+   joining — redeeming the invite a link carried
+
+   The kind-9021 goes to the relay before anything is subscribed
+   and before the person is asked anything. The relay's answer is
+   the whole decision: admitted means in (with a name prompt if
+   the admission was fresh), refused means the relay's message,
+   verbatim, and a full stop.
+   ============================================================ */
+async function sendJoinRequest(code) {
+  // A reconnect while the answer was in flight leaves a stale entry
+  // behind; the relay treats a re-presented code from a key it
+  // already admitted as "already a member", so resending is safe.
+  for (const [id, e] of outbox) {
+    if (e.kind === "join") outbox.delete(id);
+  }
+  const event = await finalizeEvent({
+    kind: KINDS.JOIN_REQUEST,
+    tags: [["h", GROUP_ID], ["code", code]],
+  });
+  outbox.set(event.id, { kind: "join", event });
+  ws.send(JSON.stringify(["EVENT", event]));
+}
+
+function finishJoin(fresh) {
+  inviteCode = null;
+  // The code is spent (or was never needed). A reload shouldn't
+  // present it again, and a bookmark of this page shouldn't carry a
+  // dead secret — so the code leaves the fragment. The relay stays:
+  // it's how a reload of this same page finds its way back.
+  const params = parseFragment();
+  params.delete("code");
+  const rest = params.toString();
+  history.replaceState(null, "", location.pathname + location.search + (rest ? "#" + rest : ""));
+  setStatus("connected — joining #" + GROUP_ID + "…");
+  subscribe();
+  setComposerEnabled(true);
+  if (fresh) {
+    namePromptEl.hidden = false;
+    nameInput.focus();
+  }
+}
+
+function refuseJoin(message) {
+  inviteCode = null;
+  halted = true;
+  joinRefusedMsgEl.textContent = message;
+  joinRefusedEl.hidden = false;
+  setStatus("not joined", "warn");
+  ws.close();
+}
+
+/* ---------- the one question a new member is asked ---------- */
+async function submitName() {
+  const name = nameInput.value.trim();
+  namePromptEl.hidden = true;
+  if (!name) return; // no name offered — the short pubkey stands in until they give one
+  profiles.set(identity.pubkey, { name, at: Math.floor(Date.now() / 1000) });
+  applyProfile(identity.pubkey);
+  const event = await finalizeEvent({
+    kind: KINDS.PROFILE,
+    tags: [["h", GROUP_ID]],
+    content: JSON.stringify({ name }),
+  });
+  outbox.set(event.id, { kind: "profile", event });
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(["EVENT", event]));
+  }
+}
+
+nameSubmitBtn.addEventListener("click", submitName);
+nameInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") submitName();
+});
+
+/* ============================================================
+   invites — the owner handing out the way in
+
+   The control exists only when the relay's NIP-11 document names
+   this identity as the owner; everyone else never learns it is
+   there. Creating one is a kind-9009 over the websocket. Listing
+   the outstanding ones is the relay's own NIP-86 management API,
+   because redeemed-or-not lives in the relay's invite table, not
+   in any event a subscription could watch.
+   ============================================================ */
+async function checkOwnership() {
+  let info;
+  try {
+    const res = await fetch(relayHttpUrl(currentRelayUrl), {
+      headers: { Accept: "application/nostr+json" },
+    });
+    if (!res.ok) return;
+    info = await res.json();
+  } catch (err) {
+    return; // no NIP-11 answer just means no invite control appears
+  }
+  if (info.pubkey === identity.pubkey) inviteBtn.hidden = false;
+}
+
+async function createInvite() {
+  // 32 hex characters from 16 random bytes: comfortably inside the
+  // relay's 16-to-128 bounds, and unguessable, which is the entire
+  // security of an invite link. No expiration tag — the relay
+  // applies its 7-day default.
+  const code = S.utils.bytesToHex(S.utils.randomBytes(16));
+  const event = await finalizeEvent({
+    kind: KINDS.CREATE_INVITE,
+    tags: [["h", GROUP_ID], ["code", code]],
+  });
+  outbox.set(event.id, { kind: "invite", code, event });
+  newInviteBtn.disabled = true;
+  ws.send(JSON.stringify(["EVENT", event]));
+}
+
+function inviteLinkFor(code) {
+  const params = new URLSearchParams();
+  // Served by the relay itself, the link needs no relay — the
+  // page's own origin says it. A wss relay travels as a bare host;
+  // anything else (ws:// in dev) travels whole.
+  const wsOrigin = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+  if (wsOrigin !== currentRelayUrl) {
+    params.set("relay", currentRelayUrl.startsWith("wss://") ? currentRelayUrl.slice(6) : currentRelayUrl);
+  }
+  params.set("code", code);
+  return location.origin + location.pathname + "#" + params.toString();
+}
+
+let latestInviteLink = null;
+
+function showInviteLink(code) {
+  latestInviteLink = inviteLinkFor(code);
+  inviteLinkTextEl.textContent = latestInviteLink;
+  shareInviteBtn.hidden = !navigator.share;
+  inviteLinkRowEl.hidden = false;
+}
+
+copyInviteBtn.addEventListener("click", () => {
+  navigator.clipboard.writeText(latestInviteLink).then(() => {
+    copyInviteBtn.textContent = "copied";
+    setTimeout(() => { copyInviteBtn.textContent = "copy"; }, 1500);
+  });
+});
+
+shareInviteBtn.addEventListener("click", () => {
+  navigator.share({ url: latestInviteLink }).catch(() => {});
+});
+
+// A NIP-86 call: POST to the relay's HTTPS root, authenticated by a
+// NIP-98 event over this exact method, URL and body.
+async function manageRelay(method, params) {
+  const url = relayHttpUrl(currentRelayUrl);
+  const body = JSON.stringify({ method, params });
+  const payload = S.utils.bytesToHex(await S.utils.sha256(new TextEncoder().encode(body)));
+  const authEvent = await finalizeEvent({
+    kind: KINDS.HTTP_AUTH,
+    tags: [["u", url], ["method", "POST"], ["payload", payload]],
+  });
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/nostr+json+rpc",
+      "Authorization": "Nostr " + btoa(JSON.stringify(authEvent)),
+    },
+    body,
+  });
+  return res.json();
+}
+
+async function refreshInviteList() {
+  inviteListEl.textContent = "checking…";
+  let response;
+  try {
+    response = await manageRelay("listunusedinvites", []);
+  } catch (err) {
+    // The management endpoint sends no CORS headers, so a copy of
+    // hearth hosted anywhere but the relay itself can't reach it.
+    // Creating invites still works — that goes over the websocket.
+    inviteListEl.textContent =
+      "couldn’t reach the relay’s management API from this copy of hearth — " +
+      "outstanding invites can only be listed from the copy the relay serves itself.";
+    return;
+  }
+  if (response.error) {
+    inviteListEl.textContent = "the relay said: " + response.error;
+    return;
+  }
+  const invites = response.result || [];
+  inviteListEl.textContent = "";
+  if (invites.length === 0) {
+    inviteListEl.textContent = "no invites outstanding.";
+    return;
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  for (const invite of invites) {
+    const row = document.createElement("div");
+    row.className = "invRow";
+    const codeEl = document.createElement("code");
+    codeEl.textContent = invite.code.slice(0, 8) + "…";
+    const expEl = document.createElement("span");
+    const days = Math.ceil((invite.expires_at - nowSec) / 86400);
+    expEl.textContent = days <= 1 ? "expires today" : "expires in " + days + " days";
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "invCopy";
+    copyBtn.textContent = "copy link";
+    copyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(inviteLinkFor(invite.code)).then(() => {
+        copyBtn.textContent = "copied";
+        setTimeout(() => { copyBtn.textContent = "copy link"; }, 1500);
+      });
+    });
+    row.append(codeEl, expEl, copyBtn);
+    inviteListEl.appendChild(row);
+  }
+}
+
+inviteBtn.addEventListener("click", () => {
+  const opening = invitePanelEl.hidden;
+  invitePanelEl.hidden = !opening;
+  if (opening) refreshInviteList();
+});
+
+newInviteBtn.addEventListener("click", createInvite);
+
+/* ============================================================
    voice call — presence, mesh signalling, and the hearth
+
+   Both call kinds are ephemeral (NIP-01: 20000-29999 aren't
+   stored). Signalling is addressed to one peer via a p tag; call
+   presence — who's at the hearth right now — is deliberately not
+   the same thing as group membership: membership is a standing
+   grant from the relay owner, presence is "still sending
+   heartbeats in the last few seconds."
 
    A mesh: every participant connects directly to every other one.
    That works with no server-side component for the two to four
@@ -486,8 +958,8 @@ const call = {
 let heartbeatTimer = null;
 let callWarnTimer = null;
 
-function showCallWarning(text) {
-  callWarnEl.textContent = "[call] " + text;
+function showBanner(text) {
+  callWarnEl.textContent = text;
   callWarnEl.hidden = false;
   clearTimeout(callWarnTimer);
   callWarnTimer = setTimeout(() => { callWarnEl.hidden = true; }, 8000);
@@ -507,21 +979,21 @@ async function sendEphemeral(partial, label) {
 
 function sendSignal(pubkey, payload) {
   sendEphemeral(
-    { kind: SIGNAL_KIND, tags: [["h", GROUP_ID], ["p", pubkey]], content: JSON.stringify(payload) },
-    "call signal to " + shortName(pubkey)
+    { kind: KINDS.CALL_SIGNAL, tags: [["h", GROUP_ID], ["p", pubkey]], content: JSON.stringify(payload) },
+    "call signal to " + displayName(pubkey)
   );
 }
 
 function publishPresence() {
   sendEphemeral(
-    { kind: PRESENCE_KIND, tags: [["h", GROUP_ID]], content: JSON.stringify({ status: "here", muted: call.muted }) },
+    { kind: KINDS.CALL_PRESENCE, tags: [["h", GROUP_ID]], content: JSON.stringify({ status: "here", muted: call.muted }) },
     "presence beat"
   );
 }
 
 function publishLeavePresence() {
   sendEphemeral(
-    { kind: PRESENCE_KIND, tags: [["h", GROUP_ID]], content: JSON.stringify({ status: "leave" }) },
+    { kind: KINDS.CALL_PRESENCE, tags: [["h", GROUP_ID]], content: JSON.stringify({ status: "leave" }) },
     "presence beat"
   );
 }
@@ -716,7 +1188,7 @@ async function joinCall() {
   try {
     call.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (err) {
-    showCallWarning("microphone permission refused — " + err.message);
+    showBanner("[call] microphone permission refused — " + err.message);
     return;
   }
   call.joined = true;
@@ -772,7 +1244,7 @@ function buildRing(container, pubkeys) {
     av.className = "av";
     av.style.background = colorFor(pubkey);
     av.style.borderRadius = "50%";
-    av.textContent = shortName(pubkey).slice(0, 2);
+    av.textContent = initials(pubkey);
     b.appendChild(av);
     if (muted) {
       const badge = document.createElement("span");
@@ -782,7 +1254,7 @@ function buildRing(container, pubkeys) {
     }
     const name = document.createElement("span");
     name.className = "hName";
-    name.textContent = isMe ? "you" : shortName(pubkey);
+    name.textContent = isMe ? "you" : displayName(pubkey);
     b.appendChild(name);
     container.appendChild(b);
   }
@@ -806,7 +1278,7 @@ function renderHearth() {
   const speaker = seatedPubkeys.find((p) => call.speaking.has(p));
   let captionText, quiet;
   if (speaker) {
-    captionText = speaker === identity.pubkey ? "you’re talking" : shortName(speaker) + " is talking";
+    captionText = speaker === identity.pubkey ? "you’re talking" : displayName(speaker) + " is talking";
     quiet = false;
   } else if (seated > 0) {
     captionText = "quiet crackling";
@@ -837,13 +1309,21 @@ callFullBackBtn.addEventListener("click", () => {
 /* ============================================================
    startup
    ============================================================ */
+function start(relayUrl) {
+  currentRelayUrl = relayUrl;
+  connect(relayUrl);
+  checkOwnership();
+}
+
 (async function init() {
-  identity = await resolveIdentity();
+  identity = await acquireIdentity();
   renderHearth();
+
+  inviteCode = parseFragment().get("code");
 
   const resolved = resolveRelayUrl();
   if (resolved) {
-    connect(resolved);
+    start(resolved);
   } else {
     relaySetup.hidden = false;
     setStatus("no relay given");
@@ -851,7 +1331,7 @@ callFullBackBtn.addEventListener("click", () => {
       const value = relayInput.value.trim();
       if (!value) return;
       relaySetup.hidden = true;
-      connect(relayUrlFromHost(value));
+      start(relayUrlFromHost(value));
     });
     relayInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") relayConnect.click();

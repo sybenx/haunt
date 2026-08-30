@@ -49,8 +49,15 @@ input{font:inherit;color:inherit;background:none;border:none}
 /* ---------- top bar ---------- */
 .topbar{
   flex:0 0 auto;padding:16px 18px;border-bottom:1px solid var(--line);
-  display:flex;flex-direction:column;gap:2px;
+  display:flex;flex-direction:column;gap:2px;position:relative;
 }
+.inviteBtn{
+  position:absolute;top:14px;right:14px;
+  font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ember);padding:7px 12px;border-radius:10px;
+  border:1px solid var(--line2);background:var(--raise);
+}
+.inviteBtn:active{background:var(--raise2)}
 .tTitle{
   font-family:var(--serif);font-size:18px;letter-spacing:.01em;
   display:flex;align-items:center;gap:6px;
@@ -85,6 +92,59 @@ input{font:inherit;color:inherit;background:none;border:none}
   padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;
   background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205;
 }
+
+/* ---------- a refused invite: the relay's message, nothing softer ---------- */
+.verbatim{
+  font-family:var(--mono);font-size:12.5px;color:var(--live);
+  background:var(--raise2);border-radius:10px;padding:10px 12px;
+  overflow-wrap:break-word;
+}
+
+/* ---------- the one question a new member is asked ---------- */
+.namePrompt{
+  position:fixed;inset:0;z-index:95;background:var(--stage);
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+}
+.namePrompt .hearthGlow{width:520px;height:380px;bottom:-150px}
+.npInner{
+  position:relative;z-index:1;display:flex;flex-direction:column;gap:14px;
+  width:min(320px,84vw);text-align:center;
+}
+.npTitle{font-family:var(--serif);font-size:22px;color:var(--ink)}
+.npInner input{
+  background:var(--raise);border:1px solid var(--line2);border-radius:12px;
+  padding:12px 14px;font-size:15px;text-align:center;color:var(--ink);
+}
+.npInner input::placeholder{color:var(--faint)}
+.npInner button{
+  padding:12px;border-radius:12px;font-weight:600;font-size:14px;
+  background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205;
+}
+
+/* ---------- invites (the owner's panel) ---------- */
+.newInviteBtn{
+  padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;
+  background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205;
+}
+.newInviteBtn:disabled{opacity:.5}
+.inviteLinkRow{margin-top:12px}
+.inviteLinkRow code{
+  display:block;font-family:var(--mono);font-size:11.5px;color:var(--ink);
+  background:var(--raise2);border-radius:10px;padding:10px 12px;
+  overflow-wrap:break-word;
+}
+.invBtns{display:flex;gap:8px;margin-top:8px}
+.invBtns button,.invCopy{
+  font-size:11.5px;color:var(--ember);padding:6px 12px;border-radius:8px;
+  border:1px solid var(--line2);background:var(--raise2);
+}
+.inviteList{margin-top:14px;font-size:12px;color:var(--dim);line-height:1.6}
+.invRow{
+  display:flex;align-items:center;gap:10px;padding:7px 0;
+  border-top:1px solid var(--line);
+}
+.invRow code{font-family:var(--mono);color:var(--ink)}
+.invRow span{flex:1;color:var(--faint)}
 
 /* ---------- scrolling room ---------- */
 .scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
@@ -220,10 +280,30 @@ input{font:inherit;color:inherit;background:none;border:none}
   <header class="topbar">
     <div class="tTitle"><span class="hash">#</span><span id="groupLabel">_</span></div>
     <div class="tSub" id="statusLine">starting&hellip;</div>
+    <button class="inviteBtn" id="inviteBtn" hidden>invite</button>
   </header>
 
   <div id="devWarn" class="warnBanner" hidden></div>
   <div id="callWarn" class="warnBanner" hidden></div>
+
+  <div id="joinRefused" class="relaySetup" hidden>
+    <p>The relay said:</p>
+    <p class="verbatim" id="joinRefusedMsg"></p>
+  </div>
+
+  <div id="invitePanel" class="relaySetup" hidden>
+    <p>An invite link admits one person, once, and lasts seven days. Hand it to them
+      however you already talk.</p>
+    <button class="newInviteBtn" id="newInviteBtn">new invite link</button>
+    <div class="inviteLinkRow" id="inviteLinkRow" hidden>
+      <code id="inviteLinkText"></code>
+      <div class="invBtns">
+        <button id="copyInviteBtn">copy</button>
+        <button id="shareInviteBtn" hidden>share</button>
+      </div>
+    </div>
+    <div class="inviteList" id="inviteList"></div>
+  </div>
 
   <div id="relaySetup" class="relaySetup" hidden>
     <p>No relay was given. Pass one as <code>?relay=host</code>, or type the bothy relay's
@@ -271,7 +351,17 @@ input{font:inherit;color:inherit;background:none;border:none}
   <div class="hCaption" id="cfCaption">&nbsp;</div>
 </div>
 
+<div class="namePrompt" id="namePrompt" hidden>
+  <div class="hearthGlow"></div>
+  <div class="npInner">
+    <div class="npTitle">What should we call you?</div>
+    <input id="nameInput" type="text" autocomplete="off" maxlength="40" placeholder="a name your friends know">
+    <button id="nameSubmit">join the others</button>
+  </div>
+</div>
+
 <script src="vendor/noble-secp256k1.js"></script>
+<script src="kinds.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
