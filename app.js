@@ -294,8 +294,9 @@ function colorFor(pubkey) {
 
    Relay priority: the fragment, then ?relay=<host> in the query
    (the dev workflow), then the relays this device has connected
-   to before, then the page's own origin, then the manual box.
-   The manual box is the fallback path, not the front door.
+   to before, then the page's own origin if the origin turns out
+   to be a relay, then the manual box. The manual box is the
+   fallback path, not the front door.
 
    Remembered relays sit above the origin because the origin is
    only a bootstrap — right when the relay itself served the page,
@@ -304,6 +305,15 @@ function colorFor(pubkey) {
    the device is what will later let a group's second relay be
    tried when its first is down. Trying them in turn isn't built
    yet; the newest one is used.
+
+   The origin is a candidate rather than an answer, because a URL
+   cannot say whether the host that served the page is a relay.
+   The same one file is served by every bothy and by a canonical
+   copy sitting on a static host that is not a relay at all, and
+   inferring a relay from the address bar would send that copy to
+   a websocket that does not exist. Asking the origin for its
+   NIP-11 document is what settles it, and it is what keeps one
+   file correct in both places.
    ============================================================ */
 function parseFragment() {
   return new URLSearchParams(location.hash.slice(1));
@@ -334,7 +344,41 @@ function relayHttpUrl(relayUrl) {
   return relayUrl.replace(/^ws/, "http");
 }
 
-function resolveRelayUrl() {
+// A relay answers a NIP-11 document at its root, which is both how
+// the room learns its name and how the page finds out whether the
+// host that served it is a relay. Returns null when the answer is
+// not a NIP-11 document, and throws when the fetch itself fails.
+async function fetchRelayInfo(relayUrl, options) {
+  const res = await fetch(relayHttpUrl(relayUrl), {
+    headers: { Accept: "application/nostr+json" },
+    ...options,
+  });
+  if (!res.ok) return null;
+  const info = await res.json();
+  if (!info || typeof info !== "object" || Array.isArray(info)) return null;
+  // Any one of NIP-11's own fields is enough. A static host answers
+  // HTML and has already failed the JSON parse above; this last check
+  // is for the host that answers some unrelated JSON at its root.
+  const isRelayDoc = ["name", "pubkey", "supported_nips", "software"].some((k) => k in info);
+  return isRelayDoc ? info : null;
+}
+
+// The page's own origin, and only once it has proved itself. The four
+// second cap is for a host that takes the request and then says
+// nothing: the page is waiting on this answer before it shows anyone
+// anything, so it cannot wait forever.
+async function originRelayUrl() {
+  if (location.protocol !== "http:" && location.protocol !== "https:") return null;
+  const candidate = (location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host;
+  try {
+    const info = await fetchRelayInfo(candidate, { signal: AbortSignal.timeout(4000) });
+    return info ? candidate : null;
+  } catch (err) {
+    return null; // not a relay, or not answering — either way, ask
+  }
+}
+
+async function resolveRelayUrl() {
   const fromFragment = parseFragment().get("relay");
   if (fromFragment) return relayUrlFromHost(fromFragment);
 
@@ -344,12 +388,10 @@ function resolveRelayUrl() {
   const remembered = rememberedRelays();
   if (remembered.length > 0) return remembered[0];
 
-  if (location.protocol === "http:" || location.protocol === "https:") {
-    const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-    return scheme + "//" + location.host;
-  }
-
-  return null; // arrived with nothing to go on — fall back to the manual box
+  // Nothing in the link and nothing remembered, so the origin is the
+  // last guess before the manual box, and it has to earn it. A null
+  // here is someone who arrived with nothing to go on.
+  return await originRelayUrl();
 }
 
 /* ============================================================
@@ -859,16 +901,13 @@ let isOwner = false;
 
 async function loadRelayInfo() {
   const forUrl = currentRelayUrl;
-  let info;
+  let info = null;
   try {
-    const res = await fetch(relayHttpUrl(forUrl), {
-      headers: { Accept: "application/nostr+json" },
-    });
-    if (!res.ok) return;
-    info = await res.json();
+    info = await fetchRelayInfo(forUrl);
   } catch (err) {
-    return; // no NIP-11 answer just means no name and no invite control
+    // No NIP-11 answer just means no name and no invite control.
   }
+  if (!info) return;
   if (forUrl !== currentRelayUrl) return; // switched relays while the fetch was in flight
   roomName = typeof info.name === "string" && info.name.trim() !== "" ? info.name.trim() : null;
   renderChrome();
@@ -2035,7 +2074,10 @@ function start(relayUrl) {
 
   inviteCode = parseFragment().get("code");
 
-  const resolved = resolveRelayUrl();
+  // Resolving can mean asking the origin whether it is a relay, and
+  // that wait is part of connecting as far as the top bar is concerned.
+  setStatus("connecting");
+  const resolved = await resolveRelayUrl();
   if (resolved) {
     start(resolved);
   } else {
