@@ -117,21 +117,24 @@ function idbGet(db, key) {
   });
 }
 
-function idbPut(db, key, value) {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(IDB_STORE, "readwrite");
-    tx.objectStore(IDB_STORE).put(value, key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
 async function loadSealedPrivkey() {
   const db = await idbOpen();
   const sealKey = await idbGet(db, "sealKey");
   const sealed = await idbGet(db, "privkey");
   db.close();
-  if (!sealKey || !sealed) return null;
+  if (!sealKey && !sealed) return null; // genuinely nothing — a fresh device
+  if (!sealKey || !sealed) {
+    // Half a store is corruption, not absence. Falling through as "no
+    // identity yet" would mint a fresh key over the top and silently
+    // replace whoever this device used to be — with no transfer and no
+    // backup, that identity would simply be gone. Throw, and let init
+    // stop the app with the reason showing.
+    throw new Error(
+      sealKey
+        ? "the sealing key is present but the sealed private key is missing"
+        : "a sealed private key is present but the key that seals it is missing"
+    );
+  }
   const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: sealed.iv }, sealKey, sealed.ciphertext);
   return new Uint8Array(plain);
 }
@@ -148,8 +151,18 @@ async function storeSealedPrivkey(privkey) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, sealKey, privkey);
   const db = await idbOpen();
-  await idbPut(db, "sealKey", sealKey);
-  await idbPut(db, "privkey", { iv, ciphertext });
+  // Both records in one transaction, so the store is never observably
+  // half-written: a tab closing between two separate writes would leave
+  // a new sealing key beside old ciphertext, and the private key under
+  // the old one would be unrecoverable.
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put(sealKey, "sealKey");
+    tx.objectStore(IDB_STORE).put({ iv, ciphertext }, "privkey");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
   db.close();
 }
 
@@ -1582,15 +1595,17 @@ scrollEl.addEventListener("click", (e) => {
 }, true);
 
 /* ---------- the detent, side two: pulling up past the bottom ---------- */
-// Native scrolling owns the conversation until it has nothing left to
-// give: a touch that keeps pulling up from the very bottom engages the
-// detent instead. Rebasing y0 at the moment of engagement keeps the
-// handover seamless when one gesture reaches the bottom and keeps
-// going.
+// The detent is a hard stop, not just resistance: only a touch that
+// BEGINS at rest at the bottom of the conversation can cross it. A
+// gesture that arrives at the bottom mid-scroll, and any momentum from
+// a fling out of mode 3, ends there — reaching the voice screen takes
+// a separate, deliberate pull. That is what keeps mode 1 a place
+// someone goes on purpose rather than overshoots into.
 let pull = null;
 
 scrollEl.addEventListener("touchstart", (e) => {
   if (ui.mode === MODE_VOICE || ui.kbFocus) return;
+  if (distFromBottom() >= 2) return; // not at rest at the bottom — this touch only scrolls
   pull = { y0: e.touches[0].clientY, t0: performance.now(), engaged: false };
 }, { passive: true });
 
@@ -1642,6 +1657,7 @@ let wheelAcc = 0;
 let wheelTimer = null;
 let bottomAcc = 0;
 let bottomTimer = null;
+let lastWheelAt = 0; // when the previous wheel event arrived, wherever it scrolled
 scrollEl.addEventListener("wheel", (e) => {
   if (ui.mode === MODE_VOICE) {
     e.preventDefault();
@@ -1654,9 +1670,19 @@ scrollEl.addEventListener("wheel", (e) => {
     }
     return;
   }
+  const gap = e.timeStamp - lastWheelAt;
+  lastWheelAt = e.timeStamp;
+  if (ui.mode !== MODE_SPLIT || ui.kbFocus || e.deltaY <= 0 || distFromBottom() > 2) {
+    bottomAcc = 0; // any scrolling that is not at the bottom disarms the detent
+    return;
+  }
   // Wheeling down with nothing left to scroll is the desktop's way of
-  // pulling up past the bottom of the conversation.
-  if (ui.mode !== MODE_SPLIT || ui.kbFocus || e.deltaY <= 0 || distFromBottom() > 2) return;
+  // pulling up past the bottom — but the detent is a hard stop that
+  // inertia cannot cross. A wheel stream that was already running when
+  // it reached the bottom (a trackpad fling out of mode 3, still
+  // emitting momentum events) never starts the accumulation; only a
+  // fresh gesture, begun after the stream has come to rest, arms it.
+  if (bottomAcc === 0 && gap < 250) return;
   bottomAcc += e.deltaY;
   clearTimeout(bottomTimer);
   bottomTimer = setTimeout(() => { bottomAcc = 0; }, 250);
@@ -1832,7 +1858,19 @@ function start(relayUrl) {
 }
 
 (async function init() {
-  identity = await acquireIdentity();
+  try {
+    identity = await acquireIdentity();
+  } catch (err) {
+    // A corrupted identity store is a stop, not a shrug: minting a
+    // fresh key here would silently replace whoever this device used
+    // to be, and cost them their membership with no error anywhere.
+    devWarnEl.textContent =
+      "This device's identity can't be loaded — " + err.message +
+      ". Hearth has stopped rather than mint a new identity over the top of the one that is stuck.";
+    devWarnEl.hidden = false;
+    setStatus("identity unavailable", "warn");
+    return;
+  }
   renderAccountChrome();
   renderChrome();
   renderHearth();
