@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>haunt</title>
+<style>
+/* ============================================================
+   haunt — the room, and nothing else yet.
+   Palette and shapes lifted from client-mobile.html (Hearthside):
+   warm dark ground, brass as the only accent. No hearth here —
+   this build carries no voice, so there is no fire to draw.
+   ============================================================ */
+:root{
+  --stage:#0b0907;
+  --room:#1d1510;
+  --raise:#281d13;
+  --raise2:#332619;
+  --line:rgba(240,220,196,.09);
+  --line2:rgba(240,220,196,.16);
+  --ink:#f0e6d9;
+  --dim:#b3a08b;
+  --faint:#82705d;
+  --ember:#ff9e5a;
+  --ember-hot:#ffc07a;
+  --ember-deep:#b85f27;
+  --live:#ff6d5a;
+  --serif:Georgia,'Iowan Old Style','Palatino Linotype','Book Antiqua',serif;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{
+  background:var(--stage);color:var(--ink);font-family:var(--sans);
+  -webkit-font-smoothing:antialiased;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input{font:inherit;color:inherit;background:none;border:none}
+:focus-visible{outline:2px solid var(--ember);outline-offset:2px;border-radius:4px}
+
+.room{
+  display:flex;flex-direction:column;height:100vh;max-width:640px;margin:0 auto;
+  background:var(--room);
+}
+
+/* ---------- top bar ---------- */
+.topbar{
+  flex:0 0 auto;padding:16px 18px;border-bottom:1px solid var(--line);
+  display:flex;flex-direction:column;gap:2px;
+}
+.tTitle{
+  font-family:var(--serif);font-size:18px;letter-spacing:.01em;
+  display:flex;align-items:center;gap:6px;
+}
+.tTitle .hash{color:var(--ember);font-family:var(--sans);font-weight:600}
+.tSub{font-size:11.5px;color:var(--faint);letter-spacing:.03em}
+.tSub.warn{color:var(--live)}
+.tSub.lit{color:var(--ember)}
+
+/* ---------- relay setup (the unusual path) ---------- */
+.relaySetup{
+  margin:14px 18px;padding:14px 16px;border-radius:14px;
+  background:var(--raise);border:1px solid var(--line2);
+}
+.relaySetup p{font-size:12.5px;line-height:1.55;color:var(--dim);margin-bottom:10px}
+.relayRow{display:flex;gap:8px}
+.relayRow input{
+  flex:1;background:var(--raise2);border:1px solid var(--line2);border-radius:10px;
+  padding:9px 12px;font-size:13.5px;color:var(--ink);
+}
+.relayRow input::placeholder{color:var(--faint)}
+.relayRow button{
+  padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;
+  background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205;
+}
+
+/* ---------- scrolling room ---------- */
+.scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.msgs{padding:14px 0}
+.m{display:flex;gap:10px;padding:6px 18px;align-items:flex-start}
+.av{
+  width:32px;height:32px;border-radius:11px;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:12px;color:rgba(20,12,6,.85);
+  box-shadow:inset 0 -6px 12px rgba(0,0,0,.18);
+}
+.mBody{flex:1;min-width:0}
+.mHead{display:flex;align-items:baseline;gap:8px;margin-bottom:1px}
+.mName{font-size:12.5px;font-weight:650;letter-spacing:.01em;color:var(--dim);font-family:var(--mono)}
+.mTime{font-size:10.5px;color:var(--faint)}
+.mText{font-size:14.5px;line-height:1.45;color:var(--ink);overflow-wrap:break-word}
+.mine .mName{color:var(--ember)}
+.m.pending .mText{color:var(--dim)}
+.m.pending .mText::after{content:' \00b7 sending\2026';color:var(--faint);font-size:12px}
+.m.failed .mText{color:var(--dim)}
+.mFail{font-size:12px;color:var(--live);margin-top:2px}
+.empty{padding:40px 24px;text-align:center;font-size:13px;color:var(--faint);line-height:1.6}
+
+/* ---------- composer, at the bottom of the scroll ---------- */
+.composer{flex:0 0 auto;padding:12px 14px 16px;border-top:1px solid var(--line)}
+.field{
+  display:flex;align-items:center;gap:10px;
+  background:var(--raise);border:1px solid var(--line);
+  border-radius:22px;padding:11px 8px 11px 16px;
+}
+.field input{flex:1;font-size:14px;color:var(--ink)}
+.field input::placeholder{color:var(--faint)}
+.sendBtn{
+  width:30px;height:30px;border-radius:50%;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--raise2);color:var(--faint);
+}
+.field.hot .sendBtn{background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205}
+.sendBtn:disabled{opacity:.5}
+
+::-webkit-scrollbar{width:0;height:0}
+</style>
+</head>
+<body>
+
+<div class="room">
+  <header class="topbar">
+    <div class="tTitle"><span class="hash">#</span><span id="groupLabel">_</span></div>
+    <div class="tSub" id="statusLine">starting&hellip;</div>
+  </header>
+
+  <div id="relaySetup" class="relaySetup" hidden>
+    <p>No relay was given. Pass one as <code>?relay=host</code>, or type the bothy relay's
+      address below &mdash; this box is the fallback, not how you're meant to arrive.</p>
+    <div class="relayRow">
+      <input id="relayInput" type="text" placeholder="relay.example.com or ws://localhost:7777" autocomplete="off">
+      <button id="relayConnect">connect</button>
+    </div>
+  </div>
+
+  <div class="scroll" id="scroll">
+    <div class="msgs" id="msgs"></div>
+  </div>
+
+  <div class="composer">
+    <div class="field" id="field">
+      <input id="msgInput" type="text" placeholder="say something&hellip;" autocomplete="off">
+      <button class="sendBtn" id="sendBtn" aria-label="send" disabled>
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 11V2M2.5 6L6.5 2l4 4"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script src="vendor/noble-secp256k1.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
