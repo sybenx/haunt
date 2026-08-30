@@ -78,13 +78,23 @@ compactly beneath the composer, in the scroll rather than pinned, and scrolling 
 through history carries it away like anything else in the conversation. Scrolled away, a
 down arrow floats over the words to lead back to the fire, and a small mute control
 floats beside it while a call is running. The microphone is never above the composer.
-Everything
-that is not the conversation — who you are, your key, your relays, the owner's invites —
-lives behind the account icon, which is always in the top bar.
+Everything that is not the conversation — who you are, your key, your relays, the
+owner's invites — lives behind the account icon, which is always in the top bar.
 
 Public channels are firelit. A private conversation is cool where the room is warm, and
 it has a hearth of its own, because two friends can be in a call just as the whole room
 can.
+
+## How it speaks
+
+The metaphor lives in the name, the colours and the light, and never on a control. A
+button says what pressing it does. There is one register: lowercase, no full stops on
+fragments, and no em dashes in status text. And a protocol step is never shown to
+someone who does not know the protocol — a person connecting is "connecting" whether
+the client is dialling, authenticating or subscribing, because the stages are not their
+concern, and any stage that genuinely fails has its own message. Old commits contain
+labels like "slip away" and "sit down"; they were the metaphor leaking onto controls,
+and they are not the house style.
 
 ## How it is distributed
 
