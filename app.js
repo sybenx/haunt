@@ -1025,8 +1025,9 @@ newInviteBtn.addEventListener("click", createInvite);
 const call = {
   joined: false,
   muted: false,
+  opening: false, // unmuted, but the microphone is not live yet — never shown as hot
   presence: new Map(), // pubkey -> { lastSeen, muted }
-  peers: new Map(), // pubkey -> { pc, audioEl, candidateQueue, remoteSet }
+  peers: new Map(), // pubkey -> { pc, sender, audioEl, candidateQueue, remoteSet }
   speaking: new Set(), // pubkeys (including our own) currently over threshold
   localStream: null,
 };
@@ -1121,21 +1122,33 @@ function maybeConnectToPeer(pubkey) {
 
 function createPeer(pubkey, isInitiator) {
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-  const entry = { pc, audioEl: null, candidateQueue: [], remoteSet: false };
+  const entry = { pc, sender: null, audioEl: null, candidateQueue: [], remoteSet: false };
   call.peers.set(pubkey, entry);
 
-  if (call.localStream) {
-    for (const track of call.localStream.getTracks()) pc.addTrack(track, call.localStream);
+  // Every connection gets an audio sender from birth, track or no
+  // track: a peer who joins while we are muted must still have
+  // somewhere for a future track to go, and negotiating the m-line as
+  // sendrecv up front is what lets replaceTrack turn our audio on and
+  // off later without renegotiating the call.
+  const transceiver = pc.addTransceiver("audio", { direction: "sendrecv" });
+  entry.sender = transceiver.sender;
+  const track = call.localStream ? call.localStream.getAudioTracks()[0] : null;
+  if (track) {
+    entry.sender.replaceTrack(track).catch((err) => console.error("hearth: replaceTrack", err));
   }
 
   pc.addEventListener("track", (e) => {
+    // Transceiver-based senders carry no stream association on the
+    // wire, so e.streams can be empty; wrap the bare track so playback
+    // and the speaking detector always have a stream to hold.
+    const stream = e.streams[0] || new MediaStream([e.track]);
     const audioEl = document.createElement("audio");
     audioEl.autoplay = true;
-    audioEl.srcObject = e.streams[0];
+    audioEl.srcObject = stream;
     document.body.appendChild(audioEl);
     audioEl.play().catch(() => {});
     entry.audioEl = audioEl;
-    attachSpeakingDetector(pubkey, e.streams[0]);
+    attachSpeakingDetector(pubkey, stream);
   });
 
   pc.addEventListener("icecandidate", (e) => {
@@ -1268,6 +1281,7 @@ async function joinCall() {
   }
   call.joined = true;
   call.muted = false;
+  call.opening = false;
   attachSpeakingDetector(identity.pubkey, call.localStream);
   publishPresence();
   heartbeatTimer = setInterval(publishPresence, HEARTBEAT_MS);
@@ -1275,24 +1289,87 @@ async function joinCall() {
   renderHearth();
 }
 
-function toggleMute() {
-  call.muted = !call.muted;
-  for (const track of call.localStream.getAudioTracks()) track.enabled = !call.muted;
+/* Muting releases the microphone, so the operating system's indicator
+   is truthful: lit only while audio can actually leave this device.
+   The track is stopped and every peer's audio sender emptied; unmuting
+   acquires a fresh track and puts it back into the same senders. The
+   peer connections themselves are never rebuilt for a mute — that
+   would renegotiate the call, slowly and visibly to everyone. */
+// Bumped by every mute and unmute; an unmute still waiting on
+// getUserMedia checks it before wiring the fresh track in, so a person
+// who changes their mind mid-open doesn't end up hot.
+let micEpoch = 0;
+
+function muteMicrophone() {
+  micEpoch++;
+  call.muted = true;
+  call.opening = false;
+  detachSpeakingDetector(identity.pubkey);
+  call.speaking.delete(identity.pubkey);
+  if (call.localStream) {
+    for (const track of call.localStream.getTracks()) track.stop();
+  }
+  call.localStream = null;
+  for (const entry of call.peers.values()) {
+    if (entry.sender) entry.sender.replaceTrack(null).catch(() => {});
+  }
   publishPresence(); // so others' muted badge for us updates promptly
   renderHearth();
 }
 
+async function unmuteMicrophone() {
+  const epoch = ++micEpoch;
+  call.opening = true;
+  renderHearth(); // the mic must not read as hot before the track is live
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    if (epoch === micEpoch) {
+      call.opening = false;
+      renderHearth();
+      showBanner("[call] microphone permission refused — " + err.message);
+    }
+    return;
+  }
+  if (epoch !== micEpoch || !call.joined) {
+    // muted again, or left the call, while the microphone was opening
+    for (const track of stream.getTracks()) track.stop();
+    return;
+  }
+  call.localStream = stream;
+  call.muted = false;
+  call.opening = false;
+  attachSpeakingDetector(identity.pubkey, stream);
+  const track = stream.getAudioTracks()[0];
+  for (const entry of call.peers.values()) {
+    if (entry.sender) entry.sender.replaceTrack(track).catch((err) => console.error("hearth: replaceTrack", err));
+  }
+  publishPresence();
+  renderHearth();
+}
+
+function toggleMute() {
+  // A tap while the microphone is still opening is a change of mind.
+  if (call.opening || !call.muted) muteMicrophone();
+  else unmuteMicrophone();
+}
+
 function leaveCall() {
   if (!call.joined) return;
+  micEpoch++; // invalidates any unmute still waiting on getUserMedia
   publishLeavePresence();
   clearInterval(heartbeatTimer);
   heartbeatTimer = null;
   for (const pubkey of [...call.peers.keys()]) teardownPeer(pubkey);
   detachSpeakingDetector(identity.pubkey);
-  for (const track of call.localStream.getTracks()) track.stop();
+  if (call.localStream) {
+    for (const track of call.localStream.getTracks()) track.stop();
+  }
   call.localStream = null;
   call.joined = false;
   call.muted = false;
+  call.opening = false;
   call.speaking.delete(identity.pubkey);
   renderHearth();
 }
@@ -1369,6 +1446,11 @@ function renderHearth() {
   if (!call.joined) {
     micLabelEl.textContent = seated === 0 ? "sit down" : "join them";
     micHintEl.textContent = seated === 0 ? "the fire is out — tap to light it" : "tap to join them";
+  } else if (call.opening) {
+    // The unmute was tapped but the track is not live yet — the mic
+    // must say so rather than claim an open microphone.
+    micLabelEl.textContent = "one moment";
+    micHintEl.textContent = "opening the microphone…";
   } else if (call.muted) {
     micLabelEl.textContent = "muted";
     micHintEl.textContent = "muted — tap to speak";
@@ -1614,7 +1696,7 @@ function updateFloaters() {
   // occupies the same corner of the screen.
   mutePillEl.hidden = !(call.joined && away && !ui.kbFocus);
   mutePillEl.classList.toggle("muted", call.muted);
-  mutePillLabelEl.textContent = call.muted ? "muted" : "live";
+  mutePillLabelEl.textContent = call.opening ? "opening…" : call.muted ? "muted" : "live";
   jumpChipEl.hidden = !(away && !ui.kbFocus);
 }
 
