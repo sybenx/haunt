@@ -2,15 +2,21 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>hearth</title>
 <style>
 /* ============================================================
    hearth — the room, and a fire in it.
-   Palette and shapes lifted from client-mobile.html (Hearthside):
-   warm dark ground, brass as the only accent. The hearth markup
-   and states below are ported from that mock's #hearth section
-   almost unchanged.
+   Palette and shapes lifted from the two mocks in the repo root:
+   client-mobile.html for the ground, bothy-client-mock.html for
+   the voice screen. Warm dark ground, brass as the only accent.
+
+   The screen is one vertical arrangement, driven by scroll:
+   voice full-screen at the bottom of it (mode 1), chat with the
+   voice block collapsed beneath the composer (mode 2), chat
+   alone further up in the conversation (mode 3). app.js moves
+   two layers — .chatLayer and .voicePanel — along that axis with
+   transforms; nothing here scrolls between modes on its own.
    ============================================================ */
 :root{
   --stage:#0b0907;
@@ -41,31 +47,44 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 input{font:inherit;color:inherit;background:none;border:none}
 :focus-visible{outline:2px solid var(--ember);outline-offset:2px;border-radius:4px}
 
-.room{
-  display:flex;flex-direction:column;height:100vh;max-width:640px;margin:0 auto;
-  background:var(--room);
+.stage{
+  display:flex;flex-direction:column;height:100dvh;max-width:640px;margin:0 auto;
+  background:var(--room);overflow:hidden;
 }
 
-/* ---------- top bar ---------- */
+/* ---------- top bar: pill + account in mode 1, title + account in chat ---------- */
 .topbar{
-  flex:0 0 auto;padding:16px 18px;border-bottom:1px solid var(--line);
-  display:flex;flex-direction:column;gap:2px;position:relative;
+  flex:0 0 auto;display:flex;align-items:center;gap:10px;
+  padding:calc(10px + env(safe-area-inset-top)) 14px 10px;
+  border-bottom:1px solid var(--line);background:var(--room);
+  position:relative;z-index:30;
 }
-.inviteBtn{
-  position:absolute;top:14px;right:14px;
-  font-size:11px;letter-spacing:.08em;text-transform:uppercase;
-  color:var(--ember);padding:7px 12px;border-radius:10px;
-  border:1px solid var(--line2);background:var(--raise);
+.tbSide{width:40px;flex:0 0 auto} /* the left stays empty for now */
+.chatPill{
+  flex:1;min-width:0;height:40px;border-radius:999px;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  background:var(--raise);border:1px solid var(--line2);
+  color:var(--faint);font-size:13.5px;
 }
-.inviteBtn:active{background:var(--raise2)}
-.tTitle{
-  font-family:var(--serif);font-size:18px;letter-spacing:.01em;
-  display:flex;align-items:center;gap:6px;
+.chatPill:active{background:var(--raise2)}
+.tbTitle{
+  flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1px;
 }
-.tTitle .hash{color:var(--ember);font-family:var(--sans);font-weight:600}
-.tSub{font-size:11.5px;color:var(--faint);letter-spacing:.03em}
-.tSub.warn{color:var(--live)}
-.tSub.lit{color:var(--ember)}
+.tbName{
+  font-family:var(--serif);font-size:16.5px;letter-spacing:.01em;color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;
+}
+.tbStatus{font-size:10.5px;color:var(--faint);letter-spacing:.03em}
+.tbStatus.warn,.vpStatus.warn{color:var(--live)}
+.accountBtn{
+  width:40px;height:40px;border-radius:50%;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:14px;color:rgba(20,12,6,.9);
+  border:2px solid var(--line2);
+}
+.accountBtn:active{border-color:var(--dim)}
+.stage.mode1 .tbTitle{display:none}
+.stage:not(.mode1) .chatPill{display:none}
 
 /* warning banners: dev-identity load failure, call-signal refusals.
    Pinned below the topbar rather than in the scroll, so they're seen
@@ -76,12 +95,12 @@ input{font:inherit;color:inherit;background:none;border:none}
   color:var(--live);font-size:12px;line-height:1.5;
 }
 
-/* ---------- relay setup (the unusual path) ---------- */
-.relaySetup{
+/* ---------- setup panels (edge states, in the flow below the bar) ---------- */
+.setupPanel{
   margin:14px 18px;padding:14px 16px;border-radius:14px;
   background:var(--raise);border:1px solid var(--line2);
 }
-.relaySetup p{font-size:12.5px;line-height:1.55;color:var(--dim);margin-bottom:10px}
+.setupPanel p{font-size:12.5px;line-height:1.55;color:var(--dim);margin-bottom:10px}
 .relayRow{display:flex;gap:8px}
 .relayRow input{
   flex:1;background:var(--raise2);border:1px solid var(--line2);border-radius:10px;
@@ -93,12 +112,282 @@ input{font:inherit;color:inherit;background:none;border:none}
   background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205;
 }
 
-/* ---------- a refused invite: the relay's message, nothing softer ---------- */
+/* a refused invite: the relay's message, nothing softer */
 .verbatim{
   font-family:var(--mono);font-size:12.5px;color:var(--live);
   background:var(--raise2);border-radius:10px;padding:10px 12px;
   overflow-wrap:break-word;
 }
+
+/* ---------- the main area: two layers on one vertical axis ---------- */
+.main{flex:1;min-height:0;position:relative;overflow:hidden}
+.chatLayer{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  background:var(--room);will-change:transform;
+}
+.voicePanel{
+  position:absolute;left:0;right:0;top:0;height:100%;
+  display:flex;flex-direction:column;
+  background:var(--room);will-change:transform;
+  touch-action:none; /* the panel is the drag handle between modes 1 and 2 */
+}
+.main.glide .chatLayer,.main.glide .voicePanel{
+  transition:transform .34s cubic-bezier(.32,.9,.35,1.02);
+}
+
+/* ---------- chat layer: messages then composer, top to bottom ---------- */
+.scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column}
+/* margin-top:auto keeps a short conversation sitting against the
+   composer instead of stranded at the top, where mode 2's translation
+   would clip it off-screen */
+.msgs{padding:14px 0;margin-top:auto}
+.m{display:flex;gap:10px;padding:6px 18px;align-items:flex-start}
+.av{
+  width:32px;height:32px;border-radius:11px;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:12px;color:rgba(20,12,6,.85);
+  box-shadow:inset 0 -6px 12px rgba(0,0,0,.18);
+}
+.mBody{flex:1;min-width:0}
+.mHead{display:flex;align-items:baseline;gap:8px;margin-bottom:1px}
+.mName{font-size:12.5px;font-weight:650;letter-spacing:.01em;color:var(--dim);font-family:var(--mono)}
+.mTime{font-size:10.5px;color:var(--faint)}
+.mText{font-size:14.5px;line-height:1.45;color:var(--ink);overflow-wrap:break-word}
+.mine .mName{color:var(--ember)}
+.m.pending .mText{color:var(--dim)}
+.m.pending .mText::after{content:' \00b7 sending\2026';color:var(--faint);font-size:12px}
+.m.failed .mText{color:var(--dim)}
+.mFail{font-size:12px;color:var(--live);margin-top:2px}
+
+.composer{flex:0 0 auto;padding:12px 14px 16px;border-top:1px solid var(--line);background:var(--room)}
+.field{
+  display:flex;align-items:center;gap:10px;
+  background:var(--raise);border:1px solid var(--line);
+  border-radius:22px;padding:11px 8px 11px 16px;
+}
+.field input{flex:1;font-size:14px;color:var(--ink)}
+.field input::placeholder{color:var(--faint)}
+.sendBtn{
+  width:30px;height:30px;border-radius:50%;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--raise2);color:var(--faint);
+}
+.field.hot .sendBtn{background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205}
+.sendBtn:disabled{opacity:.5}
+
+/* the floating mute pill: mode 3 with a call running, nothing else */
+.mutePill{
+  position:absolute;right:14px;bottom:88px;z-index:25;
+  display:flex;align-items:center;gap:7px;padding:9px 14px;border-radius:999px;
+  background:var(--raise2);border:1px solid rgba(255,158,90,.45);color:var(--ember);
+  font-size:12px;font-weight:600;letter-spacing:.02em;
+  box-shadow:0 8px 22px rgba(0,0,0,.45);
+}
+.mutePill.muted{color:var(--faint);border-color:var(--line2)}
+.mutePill svg{flex:0 0 auto}
+
+/* ---------- voice panel: full screen in mode 1, a strip in mode 2 ----------
+   One DOM, two layouts. Only the top part of the panel is on screen in
+   mode 2 (app.js translates it), so the collapsed layout packs the ring
+   and the mic into that strip and hides the rest. */
+.vpGrab{flex:0 0 auto;display:flex;justify-content:center;padding:8px 0 0}
+.vpGrab i{width:40px;height:4px;border-radius:2px;background:var(--line2)}
+
+.vpTag{flex:0 0 auto;text-align:center;padding:6px 16px 0}
+.vpName{font-family:var(--serif);font-size:15px;color:var(--dim);letter-spacing:.02em}
+.vpStatus{font-size:11px;color:var(--faint);margin-top:2px;letter-spacing:.03em}
+.voicePanel.collapsed .vpTag{display:none}
+
+.hearthBox{
+  position:relative;overflow:hidden;text-align:center;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  border:1px solid var(--line);background:var(--stage);
+}
+.voicePanel.full .hearthBox{flex:1;min-height:0;margin:10px 16px 0;border-radius:20px;padding:18px 14px 24px}
+.voicePanel.collapsed .hearthBox{flex:0 0 auto;margin:6px 14px 0;border-radius:16px;padding:10px 12px 4px}
+.hearthBox::after{ /* firelight from below when the call is live */
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(90% 75% at 50% 108%,rgba(231,140,44,.30),rgba(231,140,44,.10) 45%,transparent 72%);
+  opacity:0;transition:opacity .8s;
+}
+.voicePanel:not(.cold) .hearthBox{border-color:rgba(255,158,90,.24)}
+.voicePanel:not(.cold) .hearthBox::after{opacity:1}
+.hearthGlow{
+  position:absolute;left:50%;bottom:-70px;transform:translateX(-50%);
+  width:360px;height:250px;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(255,140,50,.30),rgba(255,110,40,.10) 55%,transparent 76%);
+  filter:blur(6px);pointer-events:none;animation:flicker 3.6s ease-in-out infinite;
+}
+.voicePanel.cold .hearthGlow{background:radial-gradient(closest-side,rgba(210,170,130,.07),transparent 70%);animation:none}
+.hearthLabel{
+  font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);
+  margin-bottom:14px;position:relative;
+}
+.voicePanel.collapsed .hearthLabel{display:none}
+.hRing{display:flex;justify-content:center;flex-wrap:wrap;gap:16px 20px;min-height:52px;position:relative;margin-bottom:6px}
+.hAv{position:relative;width:48px;height:48px;border:none;padding:0;cursor:default}
+.hAv .av{width:48px;height:48px;border-radius:50%;font-size:18px}
+.voicePanel.full .hAv,.voicePanel.full .hAv .av{width:64px;height:64px;font-size:22px}
+.voicePanel.full .hRing{gap:22px 26px}
+.hAv.speaking .av{box-shadow:0 0 0 2px var(--ember),0 0 18px rgba(255,150,70,.45)}
+.hAv.speaking::after{
+  content:'';position:absolute;inset:-6px;border-radius:50%;
+  border:2px solid rgba(255,158,90,.7);animation:pulse 1.6s ease-out infinite;pointer-events:none;
+}
+.hName{position:absolute;left:50%;transform:translateX(-50%);bottom:-16px;font-size:9.5px;color:var(--faint);letter-spacing:.03em;white-space:nowrap}
+.voicePanel.full .hName{font-size:11px;bottom:-19px}
+.voicePanel.collapsed .hRing{margin-bottom:16px;min-height:48px}
+.badge{
+  position:absolute;right:-4px;bottom:-2px;width:18px;height:18px;border-radius:7px;
+  display:flex;align-items:center;justify-content:center;
+  background:#241811;border:1px solid var(--line2);color:var(--dim);
+}
+.badge.mutedB{color:var(--faint)}
+.hCaption{height:18px;margin:14px 0 4px;font-size:12px;color:var(--ember);position:relative}
+.voicePanel.collapsed .hCaption{margin:2px 0 4px;font-size:11px}
+.hCaption.quietCap{color:var(--faint)}
+
+/* the mic: giant and round in mode 1, wide and rectangular in mode 2.
+   It stays large either way — it goes rectangular to fit, it does not
+   shrink with its container. */
+.micdock{flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:10px}
+.voicePanel.full .micdock{flex-direction:column;padding:16px 16px 6px}
+.voicePanel.collapsed .micdock{flex-direction:row;padding:12px 16px 0}
+.mic{
+  position:relative;display:flex;align-items:center;justify-content:center;gap:10px;
+  background:radial-gradient(circle at 35% 28%,#423324,#211710 72%);
+  border:1px solid #3c2d1e;color:#6e5c48;
+  box-shadow:inset 0 2px 6px rgba(255,205,150,.07),inset 0 -10px 16px rgba(0,0,0,.55),0 12px 26px rgba(0,0,0,.5);
+  transition:transform .12s ease;
+}
+.voicePanel.full .mic{
+  flex-direction:column;gap:4px;
+  width:min(52vw,218px);height:min(52vw,218px);border-radius:50%;
+}
+.voicePanel.collapsed .mic{
+  flex:1;max-width:420px;height:60px;border-radius:18px;
+}
+.mic:active{transform:scale(.96)}
+.micLabel{font-family:var(--serif);font-size:16px;letter-spacing:.01em}
+.voicePanel.collapsed .micLabel{font-size:14.5px}
+.voicePanel.full .mic svg.micGlyph{width:38px;height:38px}
+.voicePanel.collapsed .mic svg.micGlyph{width:24px;height:24px}
+.voicePanel.youIn .mic{
+  background:radial-gradient(circle at 35% 26%,#ffbd72,#e07a2e 55%,#9c4a15);
+  border-color:rgba(255,190,120,.55);color:#2f1504;
+  box-shadow:0 0 0 1px rgba(255,170,90,.35),0 0 36px rgba(255,140,60,.38),
+    inset 0 2px 8px rgba(255,235,190,.55),inset 0 -12px 20px rgba(110,40,0,.5);
+}
+.voicePanel.youMuted .mic{
+  background:radial-gradient(circle at 35% 28%,#4a3a29,#241a11 72%);
+  border-color:rgba(255,158,90,.35);color:#8a6c4e;
+  box-shadow:inset 0 3px 10px rgba(0,0,0,.6),0 0 0 1px rgba(255,158,90,.15),0 8px 20px rgba(0,0,0,.5);
+}
+.micSlash{position:absolute;inset:0;display:none;align-items:center;justify-content:center;pointer-events:none}
+.voicePanel.youMuted .micSlash{display:flex}
+.micHint{margin-top:10px;font-size:11.5px;color:var(--faint);letter-spacing:.02em;text-align:center}
+.voicePanel.collapsed .micHint{display:none}
+.leaveBtn{
+  font-size:11px;color:var(--faint);letter-spacing:.08em;text-transform:uppercase;
+  padding:6px 12px;border-radius:10px;display:none;
+}
+.voicePanel.youIn .leaveBtn,.voicePanel.youMuted .leaveBtn{display:inline-block}
+.voicePanel.full .leaveBtn{margin-top:10px}
+.voicePanel.collapsed .leaveBtn{
+  flex:0 0 auto;height:60px;padding:0 14px;border-radius:18px;border:1px solid var(--line2);
+}
+.leaveBtn:active{background:var(--raise)}
+
+/* ---------- the account overlay: everything that is not the conversation ---------- */
+.accountOverlay{
+  position:fixed;inset:0;z-index:90;max-width:640px;margin:0 auto;
+  background:var(--stage);display:flex;flex-direction:column;
+  animation:riseUp .24s ease;
+}
+@keyframes riseUp{from{transform:translateY(48px);opacity:.4}to{transform:none;opacity:1}}
+.aoHead{
+  flex:0 0 auto;display:flex;justify-content:flex-end;
+  padding:calc(10px + env(safe-area-inset-top)) 12px 0;
+}
+.aoClose{
+  width:38px;height:38px;border-radius:12px;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--dim);font-size:20px;line-height:1;
+}
+.aoClose:active{background:var(--raise)}
+.aoScroll{flex:1;min-height:0;overflow-y:auto;padding:0 22px calc(40px + env(safe-area-inset-bottom))}
+.profTop{display:flex;flex-direction:column;align-items:center;gap:8px;padding:2px 0 6px}
+.profTop .av{
+  width:72px;height:72px;border-radius:50%;font-size:28px;
+  box-shadow:0 0 0 3px rgba(255,158,90,.25),0 10px 30px rgba(0,0,0,.4);
+}
+.profName{font-family:var(--serif);font-size:22px}
+.profSub{font-size:11.5px;color:var(--faint)}
+.sect{margin-top:26px}
+.sect>.lbl{
+  font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
+  margin-bottom:8px;
+}
+.secNote{font-size:11px;color:var(--faint);margin:-4px 0 10px;line-height:1.5}
+.nameRow{display:flex;gap:8px}
+.nameRow input{
+  flex:1;min-width:0;background:var(--raise);border:1px solid var(--line2);border-radius:12px;
+  padding:11px 14px;font-size:15px;color:var(--ink);
+}
+.nameRow button{
+  padding:0 18px;border-radius:12px;font-size:13px;font-weight:600;
+  background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205;
+}
+.keyCard{
+  background:var(--raise);border:1px solid var(--line);border-radius:14px;
+  padding:14px 15px;
+}
+.keyHex{font-family:var(--mono);font-size:11.5px;color:var(--dim);overflow-wrap:anywhere;line-height:1.6}
+.keyCard .pillBtn{margin-top:12px}
+.pillBtn{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:8px 14px;border-radius:999px;border:1px solid var(--line2);
+  font-size:12.5px;font-weight:600;color:var(--ink);background:var(--raise2);
+}
+.pillBtn:active{border-color:var(--dim)}
+.keyNote{font-size:12px;color:var(--faint);line-height:1.55;margin-top:10px}
+.relayList{display:flex;flex-direction:column;gap:6px}
+.relayItem{
+  display:flex;align-items:center;gap:10px;text-align:left;
+  background:var(--raise);border:1px solid var(--line);border-radius:12px;
+  padding:11px 14px;font-family:var(--mono);font-size:12.5px;color:var(--dim);
+}
+.relayItem.current{border-color:rgba(255,158,90,.4);color:var(--ink)}
+.relayItem .dot{width:7px;height:7px;border-radius:50%;background:var(--faint);flex:0 0 auto}
+.relayItem.current .dot{background:var(--ember);box-shadow:0 0 8px rgba(255,158,90,.7)}
+.relayItem .host{flex:1;min-width:0;overflow-wrap:anywhere}
+.relayItem .tag{font-family:var(--sans);font-size:10.5px;color:var(--faint);flex:0 0 auto}
+.relayItem:active{background:var(--raise2)}
+
+/* invites, inside the overlay (owner only) */
+.newInviteBtn{
+  padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;
+  background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205;
+}
+.newInviteBtn:disabled{opacity:.5}
+.inviteLinkRow{margin-top:12px}
+.inviteLinkRow code{
+  display:block;font-family:var(--mono);font-size:11.5px;color:var(--ink);
+  background:var(--raise);border-radius:10px;padding:10px 12px;
+  overflow-wrap:break-word;
+}
+.invBtns{display:flex;gap:8px;margin-top:8px}
+.invBtns button,.invCopy{
+  font-size:11.5px;color:var(--ember);padding:6px 12px;border-radius:8px;
+  border:1px solid var(--line2);background:var(--raise);
+}
+.inviteList{margin-top:14px;font-size:12px;color:var(--dim);line-height:1.6}
+.invRow{
+  display:flex;align-items:center;gap:10px;padding:7px 0;
+  border-top:1px solid var(--line);
+}
+.invRow code{font-family:var(--mono);color:var(--ink)}
+.invRow span{flex:1;color:var(--faint)}
 
 /* ---------- the one question a new member is asked ---------- */
 .namePrompt{
@@ -121,191 +410,38 @@ input{font:inherit;color:inherit;background:none;border:none}
   background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205;
 }
 
-/* ---------- invites (the owner's panel) ---------- */
-.newInviteBtn{
-  padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;
-  background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205;
-}
-.newInviteBtn:disabled{opacity:.5}
-.inviteLinkRow{margin-top:12px}
-.inviteLinkRow code{
-  display:block;font-family:var(--mono);font-size:11.5px;color:var(--ink);
-  background:var(--raise2);border-radius:10px;padding:10px 12px;
-  overflow-wrap:break-word;
-}
-.invBtns{display:flex;gap:8px;margin-top:8px}
-.invBtns button,.invCopy{
-  font-size:11.5px;color:var(--ember);padding:6px 12px;border-radius:8px;
-  border:1px solid var(--line2);background:var(--raise2);
-}
-.inviteList{margin-top:14px;font-size:12px;color:var(--dim);line-height:1.6}
-.invRow{
-  display:flex;align-items:center;gap:10px;padding:7px 0;
-  border-top:1px solid var(--line);
-}
-.invRow code{font-family:var(--mono);color:var(--ink)}
-.invRow span{flex:1;color:var(--faint)}
-
-/* ---------- scrolling room ---------- */
-.scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
-.msgs{padding:14px 0}
-.m{display:flex;gap:10px;padding:6px 18px;align-items:flex-start}
-.av{
-  width:32px;height:32px;border-radius:11px;flex:0 0 auto;
-  display:flex;align-items:center;justify-content:center;
-  font-weight:700;font-size:12px;color:rgba(20,12,6,.85);
-  box-shadow:inset 0 -6px 12px rgba(0,0,0,.18);
-}
-.mBody{flex:1;min-width:0}
-.mHead{display:flex;align-items:baseline;gap:8px;margin-bottom:1px}
-.mName{font-size:12.5px;font-weight:650;letter-spacing:.01em;color:var(--dim);font-family:var(--mono)}
-.mTime{font-size:10.5px;color:var(--faint)}
-.mText{font-size:14.5px;line-height:1.45;color:var(--ink);overflow-wrap:break-word}
-.mine .mName{color:var(--ember)}
-.m.pending .mText{color:var(--dim)}
-.m.pending .mText::after{content:' \00b7 sending\2026';color:var(--faint);font-size:12px}
-.m.failed .mText{color:var(--dim)}
-.mFail{font-size:12px;color:var(--live);margin-top:2px}
-.empty{padding:40px 24px;text-align:center;font-size:13px;color:var(--faint);line-height:1.6}
-
-/* ---------- the hearth: last thing in the scroll, after the messages,
-   so scrolling the conversation away carries it with it — ported from
-   client-mobile.html's #hearth almost unchanged ---------- */
-.hearth{position:relative;padding:26px 20px 32px;margin-top:6px;text-align:center;overflow:hidden}
-.hearth::before{
-  content:'';position:absolute;top:0;left:24px;right:24px;height:1px;
-  background:linear-gradient(90deg,transparent,var(--line2),transparent);
-}
-.hearthGlow{
-  position:absolute;left:50%;bottom:-70px;transform:translateX(-50%);
-  width:360px;height:250px;border-radius:50%;
-  background:radial-gradient(closest-side,rgba(255,140,50,.30),rgba(255,110,40,.10) 55%,transparent 76%);
-  filter:blur(6px);pointer-events:none;animation:flicker 3.6s ease-in-out infinite;
-}
-.hearth.cold .hearthGlow{background:radial-gradient(closest-side,rgba(210,170,130,.07),transparent 70%);animation:none}
-.hearthLabel{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);margin-bottom:14px;position:relative}
-.hRing{display:flex;justify-content:center;flex-wrap:wrap;gap:16px 20px;min-height:52px;position:relative;margin-bottom:6px}
-.hAv{position:relative;width:48px;height:48px;border:none;padding:0;cursor:pointer}
-.hAv .av{width:48px;height:48px;border-radius:50%;font-size:18px}
-.hAv.speaking .av{box-shadow:0 0 0 2px var(--ember),0 0 18px rgba(255,150,70,.45)}
-.hAv.speaking::after{
-  content:'';position:absolute;inset:-6px;border-radius:50%;
-  border:2px solid rgba(255,158,90,.7);animation:pulse 1.6s ease-out infinite;pointer-events:none;
-}
-.hName{position:absolute;left:50%;transform:translateX(-50%);bottom:-16px;font-size:9.5px;color:var(--faint);letter-spacing:.03em;white-space:nowrap}
-.badge{
-  position:absolute;right:-4px;bottom:-2px;width:18px;height:18px;border-radius:7px;
-  display:flex;align-items:center;justify-content:center;
-  background:#241811;border:1px solid var(--line2);color:var(--dim);
-}
-.badge.mutedB{color:var(--faint)}
-.hCaption{height:20px;margin:16px 0 4px;font-size:12px;color:var(--ember);position:relative}
-.hCaption.quietCap{color:var(--faint)}
-.mic{
-  position:relative;width:92px;height:92px;border-radius:50%;margin:4px auto 0;
-  display:flex;align-items:center;justify-content:center;
-  background:radial-gradient(circle at 35% 28%,#423324,#211710 72%);
-  border:1px solid #3c2d1e;color:#6e5c48;
-  box-shadow:inset 0 2px 6px rgba(255,205,150,.07),inset 0 -10px 16px rgba(0,0,0,.55),0 12px 26px rgba(0,0,0,.5);
-  transition:transform .12s ease;
-}
-.mic:active{transform:scale(.94)}
-.hearth.youIn .mic{
-  background:radial-gradient(circle at 35% 26%,#ffbd72,#e07a2e 55%,#9c4a15);
-  border-color:rgba(255,190,120,.55);color:#2f1504;
-  box-shadow:0 0 0 1px rgba(255,170,90,.35),0 0 36px rgba(255,140,60,.38),
-    inset 0 2px 8px rgba(255,235,190,.55),inset 0 -12px 20px rgba(110,40,0,.5);
-}
-.hearth.youMuted .mic{
-  background:radial-gradient(circle at 35% 28%,#4a3a29,#241a11 72%);
-  border-color:rgba(255,158,90,.35);color:#8a6c4e;
-  box-shadow:inset 0 3px 10px rgba(0,0,0,.6),0 0 0 1px rgba(255,158,90,.15),0 8px 20px rgba(0,0,0,.5);
-}
-.micSlash{position:absolute;inset:0;display:none;align-items:center;justify-content:center;pointer-events:none}
-.hearth.youMuted .micSlash{display:flex}
-.micHint{margin-top:14px;font-size:11.5px;color:var(--faint);letter-spacing:.02em}
-.leaveBtn{
-  margin-top:12px;font-size:11px;color:var(--faint);letter-spacing:.08em;text-transform:uppercase;
-  padding:6px 12px;border-radius:10px;display:none;
-}
-.hearth.youIn .leaveBtn,.hearth.youMuted .leaveBtn{display:inline-block}
-.leaveBtn:active{background:var(--raise)}
-
-/* ---------- the hearth, full screen: tapping the inline hearth opens
-   this; it shows who's in the call and who's talking, nothing else ---------- */
-.callFull{
-  position:fixed;inset:0;z-index:90;background:var(--stage);
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  text-align:center;overflow:hidden;
-}
-.callFull .hearthGlow{width:520px;height:380px;bottom:-150px}
-.callFull .hearthLabel,.callFull .hRing,.callFull .hCaption{position:relative;z-index:1}
-.callFull .hCaption{font-size:14px}
-.callFullBack{
-  position:absolute;top:18px;left:18px;z-index:2;width:38px;height:38px;border-radius:12px;
-  display:flex;align-items:center;justify-content:center;color:var(--dim);
-}
-.callFullBack:active{background:var(--raise)}
-.hRing.big{gap:22px 28px}
-.hRing.big .hAv,.hRing.big .hAv .av{width:64px;height:64px;font-size:22px}
-.hRing.big .hName{font-size:11px;bottom:-19px}
-
 @keyframes pulse{0%{transform:scale(.85);opacity:.9}70%{transform:scale(1.18);opacity:0}100%{transform:scale(1.18);opacity:0}}
 @keyframes flicker{0%,100%{opacity:.95;transform:translateX(-50%) scale(1)}40%{opacity:.75;transform:translateX(-50%) scale(.97)}70%{opacity:1;transform:translateX(-50%) scale(1.02)}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
-
-/* ---------- composer, at the bottom of the scroll ---------- */
-.composer{flex:0 0 auto;padding:12px 14px 16px;border-top:1px solid var(--line)}
-.field{
-  display:flex;align-items:center;gap:10px;
-  background:var(--raise);border:1px solid var(--line);
-  border-radius:22px;padding:11px 8px 11px 16px;
-}
-.field input{flex:1;font-size:14px;color:var(--ink)}
-.field input::placeholder{color:var(--faint)}
-.sendBtn{
-  width:30px;height:30px;border-radius:50%;flex:0 0 auto;
-  display:flex;align-items:center;justify-content:center;
-  background:var(--raise2);color:var(--faint);
-}
-.field.hot .sendBtn{background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205}
-.sendBtn:disabled{opacity:.5}
 
 ::-webkit-scrollbar{width:0;height:0}
 </style>
 </head>
 <body>
 
-<div class="room">
+<div class="stage mode1" id="stage">
   <header class="topbar">
-    <div class="tTitle"><span class="hash">#</span><span id="groupLabel">_</span></div>
-    <div class="tSub" id="statusLine">starting&hellip;</div>
-    <button class="inviteBtn" id="inviteBtn" hidden>invite</button>
+    <div class="tbSide"></div>
+    <button class="chatPill" id="chatPill">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H5.6L3 21.4V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/></svg>
+      say something&hellip;
+    </button>
+    <div class="tbTitle">
+      <div class="tbName" id="tbName">hearth</div>
+      <div class="tbStatus" id="tbStatus">starting&hellip;</div>
+    </div>
+    <button class="accountBtn" id="accountBtn" aria-label="you"></button>
   </header>
 
   <div id="devWarn" class="warnBanner" hidden></div>
   <div id="callWarn" class="warnBanner" hidden></div>
 
-  <div id="joinRefused" class="relaySetup" hidden>
+  <div id="joinRefused" class="setupPanel" hidden>
     <p>The relay said:</p>
     <p class="verbatim" id="joinRefusedMsg"></p>
   </div>
 
-  <div id="invitePanel" class="relaySetup" hidden>
-    <p>An invite link admits one person, once, and lasts seven days. Hand it to them
-      however you already talk.</p>
-    <button class="newInviteBtn" id="newInviteBtn">new invite link</button>
-    <div class="inviteLinkRow" id="inviteLinkRow" hidden>
-      <code id="inviteLinkText"></code>
-      <div class="invBtns">
-        <button id="copyInviteBtn">copy</button>
-        <button id="shareInviteBtn" hidden>share</button>
-      </div>
-    </div>
-    <div class="inviteList" id="inviteList"></div>
-  </div>
-
-  <div id="relaySetup" class="relaySetup" hidden>
+  <div id="relaySetup" class="setupPanel" hidden>
     <p>No relay was given. Pass one as <code>?relay=host</code>, or type the bothy relay's
       address below &mdash; this box is the fallback, not how you're meant to arrive.</p>
     <div class="relayRow">
@@ -314,41 +450,102 @@ input{font:inherit;color:inherit;background:none;border:none}
     </div>
   </div>
 
-  <div class="scroll" id="scroll">
-    <div class="msgs" id="msgs"></div>
-
-    <section class="hearth" id="hearth" aria-label="voice hearth">
-      <div class="hearthGlow"></div>
-      <div class="hearthLabel" id="hearthLabel">the hearth</div>
-      <div class="hRing" id="hRing"></div>
-      <div class="hCaption" id="hCaption">&nbsp;</div>
-      <button class="mic" id="micBtn" aria-label="microphone">
-        <svg width="34" height="34" viewBox="0 0 34 34" fill="currentColor"><rect x="12.5" y="4" width="9" height="16" rx="4.5"/><path d="M8 15v1.5a9 9 0 0 0 18 0V15h-2.4v1.5a6.6 6.6 0 0 1-13.2 0V15z"/><rect x="15.8" y="26" width="2.4" height="4" rx="1"/><rect x="11" y="29.4" width="12" height="2.2" rx="1.1"/></svg>
-        <span class="micSlash"><svg width="46" height="46" viewBox="0 0 46 46"><line x1="10" y1="36" x2="36" y2="10" stroke="#c9a074" stroke-width="3" stroke-linecap="round"/></svg></span>
-      </button>
-      <div class="micHint" id="micHint"></div>
-      <div><button class="leaveBtn" id="leaveBtn">slip away</button></div>
-    </section>
-  </div>
-
-  <div class="composer">
-    <div class="field" id="field">
-      <input id="msgInput" type="text" placeholder="say something&hellip;" autocomplete="off">
-      <button class="sendBtn" id="sendBtn" aria-label="send" disabled>
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 11V2M2.5 6L6.5 2l4 4"/></svg>
-      </button>
+  <div class="main" id="main">
+    <div class="chatLayer" id="chatLayer">
+      <div class="scroll" id="scroll">
+        <div class="msgs" id="msgs"></div>
+      </div>
+      <div class="composer">
+        <div class="field" id="field">
+          <input id="msgInput" type="text" placeholder="say something&hellip;" autocomplete="off">
+          <button class="sendBtn" id="sendBtn" aria-label="send" disabled>
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 11V2M2.5 6L6.5 2l4 4"/></svg>
+          </button>
+        </div>
+      </div>
     </div>
+
+    <div class="voicePanel full cold" id="voicePanel">
+      <div class="vpGrab"><i></i></div>
+      <div class="vpTag">
+        <div class="vpName" id="vpName">hearth</div>
+        <div class="vpStatus" id="vpStatus">starting&hellip;</div>
+      </div>
+      <section class="hearthBox" aria-label="voice hearth">
+        <div class="hearthGlow"></div>
+        <div class="hearthLabel" id="hearthLabel">the hearth</div>
+        <div class="hRing" id="hRing"></div>
+        <div class="hCaption" id="hCaption">&nbsp;</div>
+      </section>
+      <div class="micdock">
+        <button class="mic" id="micBtn" aria-label="microphone">
+          <svg class="micGlyph" width="34" height="34" viewBox="0 0 34 34" fill="currentColor"><rect x="12.5" y="4" width="9" height="16" rx="4.5"/><path d="M8 15v1.5a9 9 0 0 0 18 0V15h-2.4v1.5a6.6 6.6 0 0 1-13.2 0V15z"/><rect x="15.8" y="26" width="2.4" height="4" rx="1"/><rect x="11" y="29.4" width="12" height="2.2" rx="1.1"/></svg>
+          <span class="micLabel" id="micLabel">sit down</span>
+          <span class="micSlash"><svg width="46" height="46" viewBox="0 0 46 46"><line x1="10" y1="36" x2="36" y2="10" stroke="#c9a074" stroke-width="3" stroke-linecap="round"/></svg></span>
+        </button>
+        <button class="leaveBtn" id="leaveBtn">slip away</button>
+      </div>
+      <div class="micHint" id="micHint"></div>
+    </div>
+
+    <button class="mutePill" id="mutePill" hidden>
+      <svg width="13" height="13" viewBox="0 0 34 34" fill="currentColor"><rect x="12.5" y="4" width="9" height="16" rx="4.5"/><path d="M8 15v1.5a9 9 0 0 0 18 0V15h-2.4v1.5a6.6 6.6 0 0 1-13.2 0V15z"/><rect x="15.8" y="26" width="2.4" height="4" rx="1"/><rect x="11" y="29.4" width="12" height="2.2" rx="1.1"/></svg>
+      <span id="mutePillLabel">live</span>
+    </button>
   </div>
 </div>
 
-<div class="callFull" id="callFull" hidden>
-  <button class="callFullBack" id="callFullBack" aria-label="back to the room">
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M11.5 3.5L5.5 9l6 5.5"/></svg>
-  </button>
-  <div class="hearthGlow"></div>
-  <div class="hearthLabel" id="cfLabel">the hearth</div>
-  <div class="hRing big" id="cfRing"></div>
-  <div class="hCaption" id="cfCaption">&nbsp;</div>
+<div class="accountOverlay" id="accountOverlay" hidden>
+  <div class="aoHead">
+    <button class="aoClose" id="accountClose" aria-label="back to the room">&#215;</button>
+  </div>
+  <div class="aoScroll">
+    <div class="profTop">
+      <div class="av" id="aoAvatar"></div>
+      <div class="profName" id="aoName"></div>
+      <div class="profSub">that's you, in this room</div>
+    </div>
+
+    <div class="sect">
+      <div class="lbl">name</div>
+      <div class="nameRow">
+        <input id="aoNameInput" type="text" maxlength="40" autocomplete="off" placeholder="a name your friends know">
+        <button id="aoNameSave">save</button>
+      </div>
+    </div>
+
+    <div class="sect">
+      <div class="lbl">your key</div>
+      <div class="keyCard">
+        <div class="keyHex" id="aoPubkey"></div>
+        <button class="pillBtn" id="aoCopyKey">copy public key</button>
+        <p class="keyNote">This key was minted quietly on this device and it is your identity here.
+          It signs everything you say, and it never leaves this device. Nobody will ever ask you
+          to type or paste it anywhere &mdash; anyone who does is trying to rob you.</p>
+      </div>
+    </div>
+
+    <div class="sect">
+      <div class="lbl">relays</div>
+      <div class="secNote">Every relay this device has reached for this room. Tap one to switch to it.</div>
+      <div class="relayList" id="aoRelays"></div>
+    </div>
+
+    <div class="sect" id="aoInvites" hidden>
+      <div class="lbl">invites</div>
+      <div class="secNote">An invite link admits one person, once, and lasts seven days. Hand it to
+        them however you already talk.</div>
+      <button class="newInviteBtn" id="newInviteBtn">new invite link</button>
+      <div class="inviteLinkRow" id="inviteLinkRow" hidden>
+        <code id="inviteLinkText"></code>
+        <div class="invBtns">
+          <button id="copyInviteBtn">copy</button>
+          <button id="shareInviteBtn" hidden>share</button>
+        </div>
+      </div>
+      <div class="inviteList" id="inviteList"></div>
+    </div>
+  </div>
 </div>
 
 <div class="namePrompt" id="namePrompt" hidden>

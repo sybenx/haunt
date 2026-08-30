@@ -1,10 +1,10 @@
 /* ============================================================
    hearth — talks to one bothy relay, in one group, with chat, a
    voice call, and the way in: invite links the owner mints inside
-   the app, redeemed on arrival. No channels, no DMs, no QR device
-   pairing, no group switching, no video, no screen share. Those
-   are designed (see the mocks in the repo root) and they come
-   later. Event kinds live in kinds.js.
+   the app, redeemed on arrival. One group conversation, one group
+   call; private conversations and their private calls come later.
+   No QR device pairing, no video, no screen share yet. Event
+   kinds live in kinds.js.
    ============================================================ */
 
 const GROUP_ID = "_";
@@ -26,8 +26,16 @@ const ICE_SERVERS = [
 const S = window.NobleSecp256k1;
 
 /* ---------- elements ---------- */
-const statusLine = document.getElementById("statusLine");
-const groupLabel = document.getElementById("groupLabel");
+const stageEl = document.getElementById("stage");
+const mainEl = document.getElementById("main");
+const chatLayerEl = document.getElementById("chatLayer");
+const voicePanelEl = document.getElementById("voicePanel");
+const chatPill = document.getElementById("chatPill");
+const tbNameEl = document.getElementById("tbName");
+const tbStatusEl = document.getElementById("tbStatus");
+const vpNameEl = document.getElementById("vpName");
+const vpStatusEl = document.getElementById("vpStatus");
+const accountBtn = document.getElementById("accountBtn");
 const relaySetup = document.getElementById("relaySetup");
 const relayInput = document.getElementById("relayInput");
 const relayConnect = document.getElementById("relayConnect");
@@ -43,28 +51,31 @@ const joinRefusedMsgEl = document.getElementById("joinRefusedMsg");
 const namePromptEl = document.getElementById("namePrompt");
 const nameInput = document.getElementById("nameInput");
 const nameSubmitBtn = document.getElementById("nameSubmit");
-const inviteBtn = document.getElementById("inviteBtn");
-const invitePanelEl = document.getElementById("invitePanel");
 const newInviteBtn = document.getElementById("newInviteBtn");
 const inviteLinkRowEl = document.getElementById("inviteLinkRow");
 const inviteLinkTextEl = document.getElementById("inviteLinkText");
 const copyInviteBtn = document.getElementById("copyInviteBtn");
 const shareInviteBtn = document.getElementById("shareInviteBtn");
 const inviteListEl = document.getElementById("inviteList");
-const hearthEl = document.getElementById("hearth");
 const hearthLabelEl = document.getElementById("hearthLabel");
 const hRingEl = document.getElementById("hRing");
 const hCaptionEl = document.getElementById("hCaption");
 const micBtn = document.getElementById("micBtn");
+const micLabelEl = document.getElementById("micLabel");
 const micHintEl = document.getElementById("micHint");
 const leaveBtn = document.getElementById("leaveBtn");
-const callFullEl = document.getElementById("callFull");
-const callFullBackBtn = document.getElementById("callFullBack");
-const cfLabelEl = document.getElementById("cfLabel");
-const cfRingEl = document.getElementById("cfRing");
-const cfCaptionEl = document.getElementById("cfCaption");
-
-groupLabel.textContent = GROUP_ID;
+const mutePillEl = document.getElementById("mutePill");
+const mutePillLabelEl = document.getElementById("mutePillLabel");
+const accountOverlayEl = document.getElementById("accountOverlay");
+const accountCloseBtn = document.getElementById("accountClose");
+const aoAvatarEl = document.getElementById("aoAvatar");
+const aoNameEl = document.getElementById("aoName");
+const aoNameInput = document.getElementById("aoNameInput");
+const aoNameSaveBtn = document.getElementById("aoNameSave");
+const aoPubkeyEl = document.getElementById("aoPubkey");
+const aoCopyKeyBtn = document.getElementById("aoCopyKey");
+const aoRelaysEl = document.getElementById("aoRelays");
+const aoInvitesEl = document.getElementById("aoInvites");
 
 /* ============================================================
    identity
@@ -340,10 +351,29 @@ let reconnectTimer = null;
 let currentRelayUrl = null;
 let inviteCode = null; // a code from the fragment, pending until the relay answers
 let halted = false; // a refused invite is final — no reconnect loop behind it
+// Bumped whenever the current connection is deliberately replaced
+// (a relay switch). A socket whose epoch is stale ignores its own
+// close and message events instead of reconnecting or writing into
+// the new connection's state.
+let connEpoch = 0;
+let roomName = null; // the relay's NIP-11 name — the room's label
+
+// The room's name and the connection's state, in both places they
+// appear: under the pill in mode 1, in the top bar in modes 2 and 3.
+// A quiet, connected room shows only its name.
+function renderChrome() {
+  const name = roomName || "#" + GROUP_ID;
+  tbNameEl.textContent = name;
+  vpNameEl.textContent = name;
+}
 
 function setStatus(text, kind) {
-  statusLine.textContent = text;
-  statusLine.className = "tSub" + (kind ? " " + kind : "");
+  const hide = kind === "lit"; // connected and quiet — the room's name is enough
+  for (const el of [tbStatusEl, vpStatusEl]) {
+    el.textContent = text;
+    el.classList.toggle("warn", kind === "warn");
+    el.hidden = hide;
+  }
 }
 
 function setComposerEnabled(enabled) {
@@ -351,6 +381,8 @@ function setComposerEnabled(enabled) {
 }
 
 function connect(relayUrl) {
+  const epoch = ++connEpoch;
+  clearTimeout(reconnectTimer);
   setStatus("connecting to " + relayUrl + "…");
   authState = "none";
   needsResubscribe = false;
@@ -358,6 +390,7 @@ function connect(relayUrl) {
   ws = new WebSocket(relayUrl);
 
   ws.addEventListener("open", () => {
+    if (epoch !== connEpoch) return;
     reconnectDelay = 2000;
     rememberRelay(relayUrl);
     if (inviteCode) {
@@ -374,6 +407,7 @@ function connect(relayUrl) {
   });
 
   ws.addEventListener("message", (evt) => {
+    if (epoch !== connEpoch) return;
     let frame;
     try {
       frame = JSON.parse(evt.data);
@@ -385,6 +419,7 @@ function connect(relayUrl) {
   });
 
   ws.addEventListener("close", () => {
+    if (epoch !== connEpoch) return;
     setComposerEnabled(false);
     if (halted) return;
     setStatus("disconnected — retrying…", "warn");
@@ -595,7 +630,18 @@ function applyProfile(pubkey) {
   for (const el of document.querySelectorAll('[data-av-for="' + pubkey + '"]')) {
     el.textContent = initials(pubkey);
   }
+  if (identity && pubkey === identity.pubkey) renderAccountChrome();
   renderHearth();
+}
+
+// The account button in the bar and the header of the overlay both
+// wear whatever this identity is currently called.
+function renderAccountChrome() {
+  accountBtn.style.background = colorFor(identity.pubkey);
+  accountBtn.textContent = initials(identity.pubkey);
+  aoAvatarEl.style.background = colorFor(identity.pubkey);
+  aoAvatarEl.textContent = initials(identity.pubkey);
+  aoNameEl.textContent = displayName(identity.pubkey);
 }
 
 /* ============================================================
@@ -645,9 +691,16 @@ function isAtBottom() {
   return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 80;
 }
 
-function appendRow(row) {
+// Rows are kept in created_at order. The relay serves stored history
+// newest-first, so a backfilled message usually belongs above what is
+// already rendered, while a live one lands at the end.
+function appendRow(row, createdAt) {
   const stick = isAtBottom();
-  msgsEl.appendChild(row);
+  row.dataset.ts = createdAt;
+  let node = msgsEl.lastElementChild;
+  while (node && Number(node.dataset.ts) > createdAt) node = node.previousElementSibling;
+  if (node) node.after(row);
+  else msgsEl.prepend(row);
   if (stick) scrollEl.scrollTop = scrollEl.scrollHeight;
 }
 
@@ -656,7 +709,7 @@ function renderIncoming(event) {
   seenIds.add(event.id);
   if (outbox.has(event.id)) return; // our own message, already rendered optimistically
   const row = messageRow(event.pubkey, event.content, formatTime(event.created_at), event.pubkey === identity.pubkey);
-  appendRow(row);
+  appendRow(row, event.created_at);
 }
 
 function markSent(el) {
@@ -681,7 +734,7 @@ async function sendMessage(text) {
 
   const row = messageRow(event.pubkey, event.content, formatTime(event.created_at), true);
   row.classList.add("pending");
-  appendRow(row);
+  appendRow(row, event.created_at);
 
   outbox.set(event.id, { kind: "message", el: row, event });
   ws.send(JSON.stringify(["EVENT", event]));
@@ -758,11 +811,8 @@ function refuseJoin(message) {
   ws.close();
 }
 
-/* ---------- the one question a new member is asked ---------- */
-async function submitName() {
-  const name = nameInput.value.trim();
-  namePromptEl.hidden = true;
-  if (!name) return; // no name offered — the short pubkey stands in until they give one
+/* ---------- publishing a name: the join prompt and the overlay share this ---------- */
+async function publishProfileName(name) {
   profiles.set(identity.pubkey, { name, at: Math.floor(Date.now() / 1000) });
   applyProfile(identity.pubkey);
   const event = await finalizeEvent({
@@ -776,33 +826,50 @@ async function submitName() {
   }
 }
 
+function submitName() {
+  const name = nameInput.value.trim();
+  namePromptEl.hidden = true;
+  if (!name) return; // no name offered — the short pubkey stands in until they give one
+  publishProfileName(name);
+}
+
 nameSubmitBtn.addEventListener("click", submitName);
 nameInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") submitName();
 });
 
 /* ============================================================
-   invites — the owner handing out the way in
+   the relay's NIP-11 document: the room's name, and whether this
+   identity is the owner
 
-   The control exists only when the relay's NIP-11 document names
-   this identity as the owner; everyone else never learns it is
-   there. Creating one is a kind-9009 over the websocket. Listing
-   the outstanding ones is the relay's own NIP-86 management API,
-   because redeemed-or-not lives in the relay's invite table, not
-   in any event a subscription could watch.
+   The relay's stated name is the room's label — in bothy's
+   one-group world the relay is the group. Ownership decides
+   whether the invite section exists inside the account overlay;
+   everyone else never learns it is there. Creating an invite is a
+   kind-9009 over the websocket. Listing the outstanding ones is
+   the relay's own NIP-86 management API, because redeemed-or-not
+   lives in the relay's invite table, not in any event a
+   subscription could watch.
    ============================================================ */
-async function checkOwnership() {
+let isOwner = false;
+
+async function loadRelayInfo() {
+  const forUrl = currentRelayUrl;
   let info;
   try {
-    const res = await fetch(relayHttpUrl(currentRelayUrl), {
+    const res = await fetch(relayHttpUrl(forUrl), {
       headers: { Accept: "application/nostr+json" },
     });
     if (!res.ok) return;
     info = await res.json();
   } catch (err) {
-    return; // no NIP-11 answer just means no invite control appears
+    return; // no NIP-11 answer just means no name and no invite control
   }
-  if (info.pubkey === identity.pubkey) inviteBtn.hidden = false;
+  if (forUrl !== currentRelayUrl) return; // switched relays while the fetch was in flight
+  roomName = typeof info.name === "string" && info.name.trim() !== "" ? info.name.trim() : null;
+  renderChrome();
+  isOwner = info.pubkey === identity.pubkey;
+  aoInvitesEl.hidden = !isOwner;
 }
 
 async function createInvite() {
@@ -920,12 +987,6 @@ async function refreshInviteList() {
     inviteListEl.appendChild(row);
   }
 }
-
-inviteBtn.addEventListener("click", () => {
-  const opening = invitePanelEl.hidden;
-  invitePanelEl.hidden = !opening;
-  if (opening) refreshInviteList();
-});
 
 newInviteBtn.addEventListener("click", createInvite);
 
@@ -1228,7 +1289,7 @@ micBtn.addEventListener("click", () => {
 });
 leaveBtn.addEventListener("click", leaveCall);
 
-/* ---------- rendering: the inline hearth and its full-screen twin ---------- */
+/* ---------- rendering: the voice panel, full or collapsed ---------- */
 function buildRing(container, pubkeys) {
   container.innerHTML = "";
   if (pubkeys.length === 0) {
@@ -1244,6 +1305,8 @@ function buildRing(container, pubkeys) {
     av.className = "av";
     av.style.background = colorFor(pubkey);
     av.style.borderRadius = "50%";
+    av.style.width = "100%";
+    av.style.height = "100%";
     av.textContent = initials(pubkey);
     b.appendChild(av);
     if (muted) {
@@ -1265,15 +1328,12 @@ function renderHearth() {
   if (call.joined) seatedPubkeys.unshift(identity.pubkey);
   const seated = seatedPubkeys.length;
 
-  hearthEl.classList.toggle("cold", seated === 0);
-  hearthEl.classList.toggle("youIn", call.joined && !call.muted);
-  hearthEl.classList.toggle("youMuted", call.joined && call.muted);
-  const label = seated === 0 ? "the hearth" : "at the hearth";
-  hearthLabelEl.textContent = label;
-  cfLabelEl.textContent = label;
+  voicePanelEl.classList.toggle("cold", seated === 0);
+  voicePanelEl.classList.toggle("youIn", call.joined && !call.muted);
+  voicePanelEl.classList.toggle("youMuted", call.joined && call.muted);
+  hearthLabelEl.textContent = seated === 0 ? "the hearth" : "at the hearth";
 
   buildRing(hRingEl, seatedPubkeys);
-  buildRing(cfRingEl, seatedPubkeys);
 
   const speaker = seatedPubkeys.find((p) => call.speaking.has(p));
   let captionText, quiet;
@@ -1289,21 +1349,348 @@ function renderHearth() {
   }
   hCaptionEl.textContent = captionText;
   hCaptionEl.classList.toggle("quietCap", quiet);
-  cfCaptionEl.textContent = captionText;
-  cfCaptionEl.classList.toggle("quietCap", quiet);
 
-  if (!call.joined) micHintEl.textContent = seated === 0 ? "the fire is out — tap to light it" : "tap to join them";
-  else if (call.muted) micHintEl.textContent = "muted — tap to speak";
-  else micHintEl.textContent = "you’re live — tap to hush";
+  if (!call.joined) {
+    micLabelEl.textContent = seated === 0 ? "sit down" : "join them";
+    micHintEl.textContent = seated === 0 ? "the fire is out — tap to light it" : "opens your mic to the room";
+  } else if (call.muted) {
+    micLabelEl.textContent = "muted";
+    micHintEl.textContent = "tap to speak";
+  } else {
+    micLabelEl.textContent = "you’re on";
+    micHintEl.textContent = "tap to hush";
+  }
+
+  updateMutePill();
 }
 
-/* ---------- tapping the hearth: expand to full screen and back ---------- */
-hearthEl.addEventListener("click", (e) => {
-  if (e.target.closest(".mic") || e.target.closest(".leaveBtn")) return;
-  callFullEl.hidden = false;
+/* ============================================================
+   the three modes, driven by scroll position
+
+   One vertical axis with the voice at the bottom of it. A single
+   number, `offset`, says how far the screen has travelled toward
+   the voice: 0 shows chat alone (mode 3), PEEK shows chat with
+   the collapsed voice block pinned beneath the composer (mode 2),
+   and the full height of the main area shows voice alone
+   (mode 1). The two layers are moved by transform in lockstep, so
+   the composer always rides directly above the voice block and
+   the mic is never above it.
+
+   Between modes 1 and 2 the boundary is a gesture on the voice
+   panel: resistive while the finger holds it, then a snap — it
+   completes or it springs back, and it never rests in between.
+   Between modes 2 and 3 the boundary is ordinary scrolling of the
+   conversation, with separate enter and leave thresholds so a
+   scroll position sitting on the line cannot oscillate. No
+   control switches modes; the one sanctioned shortcut is the chat
+   pill, which jumps from mode 1 straight to mode 3 because the
+   keyboard it opens would cover the voice block.
+   ============================================================ */
+const MODE_VOICE = 1;
+const MODE_SPLIT = 2;
+const MODE_CHAT = 3;
+const PEEK = 264; // the collapsed voice block, roughly keyboard height
+const CHAT_LEAVE = 280; // scrolled this far above the bottom, the voice block slips away
+const CHAT_ENTER = 90; // back within this of the bottom, it returns
+
+const ui = {
+  mode: MODE_VOICE,
+  H: 0, // height of the main area, remeasured on resize
+  dragging: false,
+  kbFocus: false, // composer focused — the keyboard owns the bottom of the screen
+  cameFromPill: false, // chat was entered by the pill; dismissing the keyboard goes home
+};
+
+function offsetFor(mode) {
+  return mode === MODE_VOICE ? ui.H : mode === MODE_SPLIT ? PEEK : 0;
+}
+
+function applyOffset(offset) {
+  chatLayerEl.style.transform = "translateY(" + -offset + "px)";
+  voicePanelEl.style.transform = "translateY(" + (ui.H - offset) + "px)";
+}
+
+function layout() {
+  ui.H = mainEl.clientHeight;
+  if (!ui.dragging) applyOffset(offsetFor(ui.mode));
+}
+
+let glideTimer = null;
+function setMode(mode, animate = true) {
+  const from = ui.mode;
+  ui.mode = mode;
+  stageEl.classList.toggle("mode1", mode === MODE_VOICE);
+  voicePanelEl.classList.toggle("full", mode === MODE_VOICE);
+  voicePanelEl.classList.toggle("collapsed", mode !== MODE_VOICE);
+  if (animate) {
+    mainEl.classList.add("glide");
+    clearTimeout(glideTimer);
+    glideTimer = setTimeout(() => mainEl.classList.remove("glide"), 400);
+  }
+  applyOffset(offsetFor(mode));
+  // Arriving at mode 2 from the voice screen lands at the latest
+  // messages — the bottom is the only scroll position that IS mode 2.
+  if (mode === MODE_SPLIT && from === MODE_VOICE) scrollToBottom();
+  updateMutePill();
+}
+
+function scrollToBottom() {
+  scrollEl.scrollTop = scrollEl.scrollHeight;
+}
+
+function distFromBottom() {
+  return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+}
+
+function updateMutePill() {
+  mutePillEl.hidden = !(call.joined && ui.mode === MODE_CHAT);
+  mutePillEl.classList.toggle("muted", call.muted);
+  mutePillLabelEl.textContent = call.muted ? "muted" : "live";
+}
+
+mutePillEl.addEventListener("click", () => toggleMute());
+
+/* ---------- mode 1 <-> 2: a resistive drag on the voice panel ---------- */
+let drag = null;
+let justDragged = false;
+
+voicePanelEl.addEventListener("pointerdown", (e) => {
+  if (ui.kbFocus || e.button > 0) return;
+  drag = { id: e.pointerId, y0: e.clientY, t0: performance.now(), from: ui.mode, moved: false };
 });
-callFullBackBtn.addEventListener("click", () => {
-  callFullEl.hidden = true;
+
+voicePanelEl.addEventListener("pointermove", (e) => {
+  if (!drag || e.pointerId !== drag.id) return;
+  const dy = drag.y0 - e.clientY; // finger up = positive = toward the voice
+  if (!drag.moved) {
+    if (Math.abs(dy) < 8) return; // still a tap
+    drag.moved = true;
+    ui.dragging = true;
+    mainEl.classList.remove("glide");
+    voicePanelEl.setPointerCapture(drag.id);
+  }
+  // The screen follows the finger at a discount, and past the two rest
+  // points it turns to rubber — that is the whole of "resistive".
+  let target = offsetFor(drag.from) + dy * 0.85;
+  if (target > ui.H) target = ui.H + (target - ui.H) * 0.2;
+  if (target < PEEK) target = PEEK + (target - PEEK) * 0.2;
+  applyOffset(target);
+});
+
+function endDrag(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  const wasDrag = drag.moved;
+  if (wasDrag) {
+    ui.dragging = false;
+    const dy = drag.y0 - e.clientY;
+    const speed = Math.abs(dy) / Math.max(1, performance.now() - drag.t0); // px per ms
+    const flick = speed > 0.5;
+    let go;
+    if (drag.from === MODE_VOICE) {
+      go = dy < -70 || (flick && dy < -20) ? MODE_SPLIT : MODE_VOICE;
+    } else {
+      go = dy > 70 || (flick && dy > 20) ? MODE_VOICE : MODE_SPLIT;
+    }
+    setMode(go); // completes, or springs back to where it started
+    justDragged = true;
+    setTimeout(() => { justDragged = false; }, 80);
+  }
+  drag = null;
+}
+voicePanelEl.addEventListener("pointerup", endDrag);
+voicePanelEl.addEventListener("pointercancel", endDrag);
+
+// A drag that ends on a button must not also press it.
+voicePanelEl.addEventListener("click", (e) => {
+  if (justDragged) {
+    e.stopPropagation();
+    e.preventDefault();
+  }
+}, true);
+
+// The wheel has no sustained gesture to resist, so it snaps once a
+// deliberate amount of scroll has accumulated in one direction.
+let wheelAcc = 0;
+let wheelTimer = null;
+voicePanelEl.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  wheelAcc += e.deltaY;
+  clearTimeout(wheelTimer);
+  wheelTimer = setTimeout(() => { wheelAcc = 0; }, 250);
+  if (ui.mode === MODE_VOICE && wheelAcc < -120) {
+    wheelAcc = 0;
+    setMode(MODE_SPLIT);
+  } else if (ui.mode === MODE_SPLIT && wheelAcc > 120) {
+    wheelAcc = 0;
+    setMode(MODE_VOICE);
+  }
+}, { passive: false });
+
+/* ---------- mode 2 <-> 3: ordinary scrolling, with hysteresis ---------- */
+scrollEl.addEventListener("scroll", () => {
+  if (ui.kbFocus || ui.dragging || ui.mode === MODE_VOICE) return;
+  const dist = distFromBottom();
+  if (ui.mode === MODE_SPLIT && dist > CHAT_LEAVE) setMode(MODE_CHAT);
+  else if (ui.mode === MODE_CHAT && dist < CHAT_ENTER) setMode(MODE_SPLIT);
+});
+
+// Wheeling down with nothing left to scroll is the desktop's way of
+// pushing past the bottom of the conversation into the voice.
+let bottomAcc = 0;
+let bottomTimer = null;
+scrollEl.addEventListener("wheel", (e) => {
+  if (ui.mode !== MODE_SPLIT || ui.kbFocus || e.deltaY <= 0 || distFromBottom() > 2) return;
+  bottomAcc += e.deltaY;
+  clearTimeout(bottomTimer);
+  bottomTimer = setTimeout(() => { bottomAcc = 0; }, 250);
+  if (bottomAcc > 160) {
+    bottomAcc = 0;
+    setMode(MODE_VOICE);
+  }
+});
+
+/* ---------- the pill, and the keyboard ---------- */
+chatPill.addEventListener("click", () => {
+  ui.cameFromPill = true;
+  msgInput.focus(); // the focus handler flips the mode before the keyboard rises
+  scrollToBottom();
+});
+
+msgInput.addEventListener("focus", () => {
+  ui.kbFocus = true;
+  // The keyboard would cover the voice block, so the voice block goes
+  // instead — this is why the pill skips mode 2 entirely.
+  if (ui.mode !== MODE_CHAT) setMode(MODE_CHAT);
+  else updateMutePill();
+});
+
+// Pressing send steals focus for a moment; that is not a dismissal.
+let keepKbd = false;
+sendBtn.addEventListener("pointerdown", () => {
+  keepKbd = true;
+  setTimeout(() => { keepKbd = false; }, 400);
+});
+
+msgInput.addEventListener("focusout", () => {
+  setTimeout(() => {
+    if (document.activeElement === msgInput) return;
+    if (keepKbd) {
+      msgInput.focus();
+      return;
+    }
+    ui.kbFocus = false;
+    if (ui.cameFromPill) {
+      // Chat was only ever open because the pill opened it.
+      ui.cameFromPill = false;
+      setMode(MODE_VOICE);
+    } else {
+      setMode(distFromBottom() <= CHAT_LEAVE ? MODE_SPLIT : MODE_CHAT);
+    }
+  }, 0);
+});
+
+msgInput.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") msgInput.blur();
+});
+
+/* ============================================================
+   the account overlay — everything that is not the conversation:
+   name, key, the relays this device knows, and (for the owner)
+   the invite control. Relay switching lives here rather than
+   behind its own surface because most people have exactly one
+   relay, and a navigation surface for a list of one reads as
+   broken. Private conversations will need their own
+   frequent-access surface later; this overlay is not it and
+   nothing here grows toward being it.
+   ============================================================ */
+function renderRelayList() {
+  aoRelaysEl.innerHTML = "";
+  const relays = rememberedRelays();
+  if (relays.length === 0) {
+    const none = document.createElement("div");
+    none.className = "secNote";
+    none.textContent = "none yet — this device hasn't reached a relay.";
+    aoRelaysEl.appendChild(none);
+    return;
+  }
+  for (const url of relays) {
+    const row = document.createElement("button");
+    row.className = "relayItem" + (url === currentRelayUrl ? " current" : "");
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    const host = document.createElement("span");
+    host.className = "host";
+    host.textContent = url.startsWith("wss://") ? url.slice(6) : url;
+    row.append(dot, host);
+    if (url === currentRelayUrl) {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = "connected";
+      row.appendChild(tag);
+    }
+    row.addEventListener("click", () => {
+      switchRelay(url);
+      renderRelayList();
+    });
+    aoRelaysEl.appendChild(row);
+  }
+}
+
+// Everything shown is per-relay — the messages, the names, the
+// presence, the room's own name — so a switch clears it all and lets
+// the new relay say who and what this room is.
+function switchRelay(url) {
+  if (url === currentRelayUrl) return;
+  if (call.joined) leaveCall();
+  clearTimeout(reconnectTimer);
+  connEpoch++; // orphans the old socket: its close event no longer reconnects
+  try { if (ws) ws.close(); } catch (e) {}
+  outbox.clear();
+  seenIds.clear();
+  profiles.clear();
+  call.presence.clear();
+  msgsEl.innerHTML = "";
+  halted = false;
+  isOwner = false;
+  aoInvitesEl.hidden = true;
+  inviteLinkRowEl.hidden = true;
+  roomName = null;
+  renderChrome();
+  renderAccountChrome();
+  renderHearth();
+  start(url);
+}
+
+function openAccount() {
+  renderAccountChrome();
+  aoNameInput.value = (profiles.get(identity.pubkey) || {}).name || "";
+  aoPubkeyEl.textContent = identity.pubkey;
+  renderRelayList();
+  if (isOwner) refreshInviteList();
+  accountOverlayEl.hidden = false;
+}
+
+accountBtn.addEventListener("click", openAccount);
+accountCloseBtn.addEventListener("click", () => {
+  accountOverlayEl.hidden = true;
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !accountOverlayEl.hidden) accountOverlayEl.hidden = true;
+});
+
+aoNameSaveBtn.addEventListener("click", () => {
+  const name = aoNameInput.value.trim();
+  if (!name) return;
+  publishProfileName(name);
+  aoNameSaveBtn.textContent = "saved";
+  setTimeout(() => { aoNameSaveBtn.textContent = "save"; }, 1500);
+});
+
+aoCopyKeyBtn.addEventListener("click", () => {
+  navigator.clipboard.writeText(identity.pubkey).then(() => {
+    aoCopyKeyBtn.textContent = "copied";
+    setTimeout(() => { aoCopyKeyBtn.textContent = "copy public key"; }, 1500);
+  });
 });
 
 /* ============================================================
@@ -1312,12 +1699,18 @@ callFullBackBtn.addEventListener("click", () => {
 function start(relayUrl) {
   currentRelayUrl = relayUrl;
   connect(relayUrl);
-  checkOwnership();
+  loadRelayInfo();
 }
 
 (async function init() {
   identity = await acquireIdentity();
+  renderAccountChrome();
+  renderChrome();
   renderHearth();
+
+  layout();
+  setMode(MODE_VOICE, false); // the room's face is the fire
+  new ResizeObserver(layout).observe(mainEl);
 
   inviteCode = parseFragment().get("code");
 

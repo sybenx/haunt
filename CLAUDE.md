@@ -69,14 +69,20 @@ Hearth is designed for a phone first. A desktop version exists as a separate pro
 game overlay with independent floating windows for voice and for each conversation,
 reached by keyboard shortcut. It is not this.
 
-The conversation fills the screen and the microphone sits at the bottom of it, in the
-scroll rather than pinned above it, so scrolling back through the conversation carries
-the microphone away and returning brings it back. Tapping it opens the hearth, which is
-the call as a place: the people in it, who is speaking, and — when someone is sharing
-their screen — their video in the middle with the faces around it.
+The screen is one vertical arrangement with the fire at the bottom of it, and where the
+scroll sits is the whole of what is showing. Opening Hearth lands at the hearth itself,
+the call as a place: the people in it, who is speaking, a microphone large enough to be
+the point, and — when someone is sharing their screen — their video in the middle with
+the faces around it. Pulling the conversation up over the fire leaves the call beneath
+the composer, collapsed to about the height of a keyboard, and scrolling back through
+history lets it slip away entirely, with only a small mute control floating over the
+words while a call is running. The microphone is never above the composer. Everything
+that is not the conversation — who you are, your key, your relays, the owner's invites —
+lives behind the account icon, which is always in the top bar.
 
-Public channels are firelit. A direct message is cool and has no hearth, because there
-is no call in a private conversation.
+Public channels are firelit. A private conversation is cool where the room is warm, and
+it has a hearth of its own, because two friends can be in a call just as the whole room
+can.
 
 ## How it is distributed
 
