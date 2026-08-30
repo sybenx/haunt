@@ -653,6 +653,8 @@ function renderChrome() {
   const name = roomName || "#" + GROUP_ID;
   tbNameEl.textContent = name;
   vpNameEl.textContent = name;
+  // The tab carries the group's name too, for somebody who has two open.
+  document.title = roomName ? "Hearth - " + roomName : "Hearth";
 }
 
 function setStatus(text, kind) {
