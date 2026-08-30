@@ -93,8 +93,8 @@ const aoInvitesEl = document.getElementById("aoInvites");
    out, so nothing that exfiltrates storage gets a usable key —
    which is as close to "the key never leaves this device" as a
    plain page without hardware keys can get. The key still can't
-   be carried to a second device; QR pairing (client-mobile.html)
-   is what will do that.
+   be carried to a second device; QR pairing
+   (reference/client-mobile.html) is what will do that.
    ============================================================ */
 const IDB_NAME = "hearth";
 const IDB_STORE = "identity";
