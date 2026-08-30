@@ -181,11 +181,8 @@ input{font:inherit;color:inherit;background:none;border:none}
 .composer.docked input{text-align:center}
 /* 16px, not smaller: an input under that makes iOS zoom the page on
    focus, which would wreck the keyboard ride. */
-.composeText{
-  flex:1;min-width:0;font-size:16px;color:var(--ink);outline:none;
-  white-space:nowrap;overflow:hidden;
-}
-.composeText:empty::before{content:attr(data-placeholder);color:var(--faint)}
+.field input{flex:1;min-width:0;font-size:16px;color:var(--ink)}
+.field input::placeholder{color:var(--faint)}
 
 /* the floating controls, stacked in the corner over the conversation.
    The down arrow shows whenever the person has scrolled away from the
@@ -489,7 +486,7 @@ input{font:inherit;color:inherit;background:none;border:none}
       <div class="msgs" id="msgs"></div>
       <div class="composer" id="composer">
         <div class="field" id="field">
-          <div id="msgInput" class="composeText" contenteditable="true" enterkeyhint="send" data-placeholder="say something&hellip;"></div>
+          <input id="msgInput" type="text" placeholder="say something&hellip;" autocomplete="off" enterkeyhint="send">
         </div>
       </div>
       <div class="composerGhost" id="composerGhost" hidden></div>
