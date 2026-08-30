@@ -110,6 +110,17 @@ input{font:inherit;color:inherit;background:none;border:none}
   padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;
   background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205;
 }
+/* two ways out of the same panel, neither of them the default one */
+.choiceRow{display:flex;gap:8px;flex-wrap:wrap}
+.choiceRow button{
+  padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;
+  background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205;
+}
+.choiceRow button.quiet{
+  background:var(--raise2);border:1px solid var(--line2);color:var(--ink);
+}
+.choiceRow button:disabled{opacity:.5}
+.panelFail{font-size:12px;color:var(--live);line-height:1.5;margin-top:10px}
 
 /* a refused invite: the relay's message, nothing softer */
 .verbatim{
@@ -470,6 +481,16 @@ input{font:inherit;color:inherit;background:none;border:none}
   <div id="joinRefused" class="setupPanel" hidden>
     <p>The relay said:</p>
     <p class="verbatim" id="joinRefusedMsg"></p>
+  </div>
+
+  <div id="signInOffer" class="setupPanel" hidden>
+    <p>This browser has a nostr signing extension. You can come in as the identity it holds, or
+      carry on as somebody new and let a key be made for you on this device.</p>
+    <div class="choiceRow">
+      <button id="signInExt">sign in with your extension</button>
+      <button id="signInNew" class="quiet">continue as somebody new</button>
+    </div>
+    <p class="panelFail" id="signInFail" hidden></p>
   </div>
 
   <div id="relaySetup" class="setupPanel" hidden>

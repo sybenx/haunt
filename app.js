@@ -34,6 +34,10 @@ const tbStatusEl = document.getElementById("tbStatus");
 const vpNameEl = document.getElementById("vpName");
 const vpStatusEl = document.getElementById("vpStatus");
 const accountBtn = document.getElementById("accountBtn");
+const signInOfferEl = document.getElementById("signInOffer");
+const signInExtBtn = document.getElementById("signInExt");
+const signInNewBtn = document.getElementById("signInNew");
+const signInFailEl = document.getElementById("signInFail");
 const relaySetup = document.getElementById("relaySetup");
 const relayInput = document.getElementById("relayInput");
 const relayConnect = document.getElementById("relayConnect");
@@ -183,6 +187,7 @@ async function storeSealedPrivkey(privkey) {
 function localSigner(privkey) {
   return {
     pubkey: S.utils.bytesToHex(S.schnorr.getPublicKey(privkey)),
+    kind: "device",
     holdsPrivateKey: true,
     privkey,
     async signEvent(ev) {
@@ -206,6 +211,93 @@ async function storedIdentitySource() {
   }
   const privkey = await loadSealedPrivkey();
   return privkey ? localSigner(privkey) : null;
+}
+
+/* ------------------------------------------------------------
+   a signing extension (NIP-07)
+
+   Presence is the whole test. An extension is window.nostr and
+   nothing else, and asking about the platform, the user agent or
+   the size of the screen instead would wrongly hide this from the
+   several browsers on Android that have one.
+
+   Hearth asks it for two things: a public key, and a signature on
+   each event. That is all hearth needs — what a group says is
+   plaintext to the relay it is stored on, and voice signalling is
+   plaintext ephemerals — so none of the encryption an extension
+   also offers is asked for.
+   ------------------------------------------------------------ */
+const SIGNER_CHOICE_KEY = "hearth:signer";
+
+function hasExtension() {
+  const ext = window.nostr;
+  return !!ext && typeof ext.getPublicKey === "function" && typeof ext.signEvent === "function";
+}
+
+// There is no private key in the page for this one, and that is a
+// fact about where the key lives rather than a rule laid over the
+// top: this identity can never be the device that hands a key to
+// another in a transfer, and there is nothing here to export.
+function extensionSigner(pubkey) {
+  return {
+    pubkey,
+    kind: "extension",
+    holdsPrivateKey: false,
+    async signEvent(ev) {
+      const signed = await window.nostr.signEvent(ev);
+      // A signature under a different key would be refused by the
+      // relay one event at a time, with nothing on screen saying why.
+      if (!signed || !signed.id || !signed.sig) {
+        throw new Error("your extension didn't return a signed event");
+      }
+      if (signed.pubkey !== pubkey) {
+        throw new Error("your extension signed as a different identity than the one it gave");
+      }
+      return signed;
+    },
+  };
+}
+
+async function extensionIdentitySource() {
+  if (localStorage.getItem(SIGNER_CHOICE_KEY) !== "extension") return null;
+  if (!hasExtension()) {
+    // Signed in with an extension that this browser no longer has.
+    // Falling through to a key sealed on this device would quietly
+    // sign this person in as somebody else, so it stops instead.
+    throw new Error("this device signs in with a browser extension, and the extension isn't there");
+  }
+  return extensionSigner(await window.nostr.getPublicKey());
+}
+
+// Offered, never required and never the default. Somebody arriving on
+// an invite link is joining as a new person in this group rather than
+// as whoever they already are on nostr, so the offer stays out of
+// that path entirely and the quiet mint happens as it always did.
+async function offerExtensionSignIn() {
+  if (!hasExtension()) return null;
+  if (parseFragment().get("code")) return null;
+  return new Promise((resolve) => {
+    signInOfferEl.hidden = false;
+    signInExtBtn.addEventListener("click", async () => {
+      signInFailEl.hidden = true;
+      signInExtBtn.disabled = true;
+      try {
+        const signer = extensionSigner(await window.nostr.getPublicKey());
+        localStorage.setItem(SIGNER_CHOICE_KEY, "extension");
+        signInOfferEl.hidden = true;
+        resolve(signer);
+      } catch (err) {
+        signInExtBtn.disabled = false;
+        signInFailEl.textContent = "your extension didn't hand over a public key. " +
+          "You can try again, or carry on as somebody new.";
+        signInFailEl.hidden = false;
+      }
+    });
+    signInNewBtn.addEventListener("click", () => {
+      signInOfferEl.hidden = true;
+      resolve(null);
+    });
+  });
 }
 
 /* ------------------------------------------------------------
@@ -251,17 +343,23 @@ async function devIdentitySource() {
 }
 
 // Tried in order; device-to-device key transfer will slot in after
-// storage when it exists. Minting is the fallthrough rather than a
-// source: it is what happens when nobody has this person's key, and
-// it happens silently — nobody is ever asked to produce or paste
-// key material, in either direction.
-const identitySources = [devIdentitySource, storedIdentitySource];
+// storage when it exists. The extension comes before storage because
+// signing in with one is a deliberate choice this device made and a
+// sealed key may well still be sitting behind it.
+const identitySources = [devIdentitySource, extensionIdentitySource, storedIdentitySource];
 
+// Minting is the fallthrough rather than a source: it is what happens
+// when nobody has this person's key. It stays silent, and the one
+// thing offered before it is a signing extension this browser already
+// has — an offer, taken only by somebody who came to be who they
+// already are.
 async function acquireIdentity() {
   for (const source of identitySources) {
     const found = await source();
     if (found) return found;
   }
+  const chosen = await offerExtensionSignIn();
+  if (chosen) return chosen;
   const privkey = S.utils.randomPrivateKey();
   await storeSealedPrivkey(privkey);
   return localSigner(privkey);
@@ -2090,9 +2188,11 @@ function start(relayUrl) {
     // to be, and cost them their membership with no error anywhere.
     devWarnEl.textContent =
       "This device's identity can't be loaded — " + err.message +
-      ". Hearth has stopped rather than mint a new identity over the top of the one that is stuck.";
+      ". Hearth has stopped rather than sign you in as somebody else.";
     devWarnEl.hidden = false;
-    setStatus("couldn’t unlock your key", "warn");
+    // True of a sealed key that will not open and of an extension that
+    // is no longer there; the banner above says which.
+    setStatus("couldn’t sign you in", "warn");
     return;
   }
   renderAccountChrome();
