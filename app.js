@@ -80,12 +80,22 @@ const aoInvitesEl = document.getElementById("aoInvites");
 /* ============================================================
    identity
 
-   A keypair, acquired from the first source that has one. The
-   sources are an ordered list because acquisition is a seam:
-   today a key is found in storage or minted fresh, and later it
-   will also arrive by transfer from a device the person already
-   owns — that lands as one more entry in the list, not as a
-   rewrite of the callers.
+   An identity is a public key and a way to sign with it, acquired
+   from the first source that has one. The sources are an ordered
+   list because acquisition is a seam: today a key is found in
+   storage, offered by a browser extension, or minted fresh, and
+   later it will also arrive by transfer from a device the person
+   already owns — that lands as one more entry in the list, not as
+   a rewrite of the callers.
+
+   Signing is the same kind of seam, which is why an identity
+   carries a signEvent rather than a private key. A key held on
+   this device is one way to answer that and not the only one: an
+   extension signs without ever showing the page a key, and the
+   key management this is heading toward has a device holding one
+   share and signing through a round with a co-signer. Both of
+   those fit behind signEvent and neither fits behind a privkey
+   field, so nothing outside this section reads one.
 
    At rest the private key is ciphertext in IndexedDB, sealed
    under a non-extractable AES-GCM key stored beside it. Script
@@ -165,8 +175,23 @@ async function storeSealedPrivkey(privkey) {
   db.close();
 }
 
-function identityFromPrivkey(privkey) {
-  return { privkey, pubkey: S.utils.bytesToHex(S.schnorr.getPublicKey(privkey)) };
+// A key this device holds. holdsPrivateKey is what a caller is
+// really asking when it reaches for a private key, and saying it on
+// the signer is what keeps the answer honest: an identity that signs
+// somewhere else can never be the device that hands a key over in a
+// transfer, and there is nothing here for an export to export.
+function localSigner(privkey) {
+  return {
+    pubkey: S.utils.bytesToHex(S.schnorr.getPublicKey(privkey)),
+    holdsPrivateKey: true,
+    privkey,
+    async signEvent(ev) {
+      const idBytes = await S.utils.sha256(new TextEncoder().encode(serializeEvent(ev)));
+      ev.id = S.utils.bytesToHex(idBytes);
+      ev.sig = S.utils.bytesToHex(await S.schnorr.sign(idBytes, privkey));
+      return ev;
+    },
+  };
 }
 
 async function storedIdentitySource() {
@@ -177,10 +202,10 @@ async function storedIdentitySource() {
     const privkey = S.utils.hexToBytes(legacy);
     await storeSealedPrivkey(privkey);
     localStorage.removeItem("hearth:privkey");
-    return identityFromPrivkey(privkey);
+    return localSigner(privkey);
   }
   const privkey = await loadSealedPrivkey();
-  return privkey ? identityFromPrivkey(privkey) : null;
+  return privkey ? localSigner(privkey) : null;
 }
 
 /* ------------------------------------------------------------
@@ -211,9 +236,7 @@ async function loadDevIdentity(index) {
   if (typeof hex !== "string") {
     throw new Error("dev-keys.json has no entry at index " + index);
   }
-  const privkey = S.utils.hexToBytes(hex);
-  const pubkey = S.utils.bytesToHex(S.schnorr.getPublicKey(privkey));
-  return { privkey, pubkey };
+  return localSigner(S.utils.hexToBytes(hex));
 }
 
 async function devIdentitySource() {
@@ -241,7 +264,7 @@ async function acquireIdentity() {
   }
   const privkey = S.utils.randomPrivateKey();
   await storeSealedPrivkey(privkey);
-  return identityFromPrivkey(privkey);
+  return localSigner(privkey);
 }
 
 function showDevWarning(text) {
@@ -266,11 +289,7 @@ async function finalizeEvent(partial) {
     content: "",
     ...partial,
   };
-  const idBytes = await S.utils.sha256(new TextEncoder().encode(serializeEvent(ev)));
-  ev.id = S.utils.bytesToHex(idBytes);
-  const sigBytes = await S.schnorr.sign(idBytes, identity.privkey);
-  ev.sig = S.utils.bytesToHex(sigBytes);
-  return ev;
+  return await identity.signEvent(ev);
 }
 
 function shortName(pubkey) {
@@ -465,7 +484,7 @@ function connect(relayUrl) {
       console.error("hearth: unparseable relay frame", evt.data);
       return;
     }
-    handleFrame(frame, relayUrl);
+    handleFrame(frame, relayUrl, epoch);
   });
 
   ws.addEventListener("close", () => {
@@ -482,6 +501,17 @@ function connect(relayUrl) {
   });
 }
 
+// Signing is asynchronous, and when it is a browser extension asking
+// its owner for permission it takes as long as they take. The socket
+// that was open when an event was composed may not be the socket that
+// is open when it comes back signed, and sending on one that is still
+// connecting throws, so every event send goes through here.
+function sendEvent(event) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(["EVENT", event]));
+  }
+}
+
 function subscribe() {
   ws.send(JSON.stringify(["REQ", SUB_ID,
     { kinds: [KINDS.CHAT], "#h": [GROUP_ID], limit: 50 },
@@ -491,7 +521,7 @@ function subscribe() {
   ]));
 }
 
-async function handleFrame(frame, relayUrl) {
+async function handleFrame(frame, relayUrl, epoch) {
   const type = frame[0];
 
   if (type === "EVENT" && frame[1] === SUB_ID) {
@@ -529,6 +559,11 @@ async function handleFrame(frame, relayUrl) {
       kind: KINDS.CLIENT_AUTH,
       tags: [["relay", relayUrl], ["challenge", challenge]],
     });
+    // A challenge belongs to the socket that issued it. If that socket
+    // has been replaced while this was being signed, the answer is
+    // worthless and the connection that replaced it will be challenged
+    // in its own right.
+    if (epoch !== connEpoch) return;
     outbox.set(authEvent.id, { kind: "auth" });
     ws.send(JSON.stringify(["AUTH", authEvent]));
     return;
@@ -785,7 +820,7 @@ async function sendMessage(text) {
   appendRow(row, event.created_at);
 
   outbox.set(event.id, { kind: "message", el: row, event });
-  ws.send(JSON.stringify(["EVENT", event]));
+  sendEvent(event);
 }
 
 function trySend() {
@@ -827,7 +862,7 @@ async function sendJoinRequest(code) {
     tags: [["h", GROUP_ID], ["code", code]],
   });
   outbox.set(event.id, { kind: "join", event });
-  ws.send(JSON.stringify(["EVENT", event]));
+  sendEvent(event);
 }
 
 function finishJoin(fresh) {
@@ -867,9 +902,7 @@ async function publishProfileName(name) {
     content: JSON.stringify({ name }),
   });
   outbox.set(event.id, { kind: "profile", event });
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(["EVENT", event]));
-  }
+  sendEvent(event);
 }
 
 function submitName() {
@@ -927,7 +960,7 @@ async function createInvite() {
   });
   outbox.set(event.id, { kind: "invite", code, event });
   newInviteBtn.disabled = true;
-  ws.send(JSON.stringify(["EVENT", event]));
+  sendEvent(event);
 }
 
 function inviteLinkFor(code) {
@@ -1077,9 +1110,7 @@ function showBanner(text) {
 async function sendEphemeral(partial, label) {
   const event = await finalizeEvent(partial);
   outbox.set(event.id, { kind: "ephemeral", label, event });
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(["EVENT", event]));
-  }
+  sendEvent(event);
 }
 
 function sendSignal(pubkey, payload) {
