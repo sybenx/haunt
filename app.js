@@ -41,6 +41,7 @@ const relayInput = document.getElementById("relayInput");
 const relayConnect = document.getElementById("relayConnect");
 const scrollEl = document.getElementById("scroll");
 const msgsEl = document.getElementById("msgs");
+const composerEl = document.getElementById("composer");
 const field = document.getElementById("field");
 const msgInput = document.getElementById("msgInput");
 const sendBtn = document.getElementById("sendBtn");
@@ -64,8 +65,16 @@ const micBtn = document.getElementById("micBtn");
 const micLabelEl = document.getElementById("micLabel");
 const micHintEl = document.getElementById("micHint");
 const leaveBtn = document.getElementById("leaveBtn");
+const hearthEl = document.getElementById("hearth");
+const hearthLabelSEl = document.getElementById("hearthLabelS");
+const hRingSEl = document.getElementById("hRingS");
+const hCaptionSEl = document.getElementById("hCaptionS");
+const micBtnS = document.getElementById("micBtnS");
+const micHintSEl = document.getElementById("micHintS");
+const leaveBtnS = document.getElementById("leaveBtnS");
 const mutePillEl = document.getElementById("mutePill");
 const mutePillLabelEl = document.getElementById("mutePillLabel");
+const jumpChipEl = document.getElementById("jumpChip");
 const accountOverlayEl = document.getElementById("accountOverlay");
 const accountCloseBtn = document.getElementById("accountClose");
 const aoAvatarEl = document.getElementById("aoAvatar");
@@ -687,21 +696,24 @@ function formatTime(unixSeconds) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-function isAtBottom() {
-  return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 80;
-}
-
 // Rows are kept in created_at order. The relay serves stored history
 // newest-first, so a backfilled message usually belongs above what is
 // already rendered, while a live one lands at the end.
 function appendRow(row, createdAt) {
-  const stick = isAtBottom();
+  // Stick to the newest message when the person is at the bottom of the
+  // conversation, and also while they are typing — with the keyboard up
+  // the composer is parked at the viewport's edge, which reads as far
+  // from the scroll's true bottom but is exactly where they are.
+  const stick = distFromBottom() < 80 || ui.kbFocus;
   row.dataset.ts = createdAt;
   let node = msgsEl.lastElementChild;
   while (node && Number(node.dataset.ts) > createdAt) node = node.previousElementSibling;
   if (node) node.after(row);
   else msgsEl.prepend(row);
-  if (stick) scrollEl.scrollTop = scrollEl.scrollHeight;
+  if (stick) {
+    if (ui.kbFocus) parkComposer();
+    else scrollEl.scrollTop = scrollEl.scrollHeight;
+  }
 }
 
 function renderIncoming(event) {
@@ -1283,13 +1295,18 @@ function leaveCall() {
   renderHearth();
 }
 
-micBtn.addEventListener("click", () => {
+// Two microphones — the voice screen's and the hearth's in the scroll —
+// and they are the same button.
+function micPressed() {
   if (!call.joined) joinCall();
   else toggleMute();
-});
+}
+micBtn.addEventListener("click", micPressed);
+micBtnS.addEventListener("click", micPressed);
 leaveBtn.addEventListener("click", leaveCall);
+leaveBtnS.addEventListener("click", leaveCall);
 
-/* ---------- rendering: the voice panel, full or collapsed ---------- */
+/* ---------- rendering: the voice screen and the hearth in the scroll ---------- */
 function buildRing(container, pubkeys) {
   container.innerHTML = "";
   if (pubkeys.length === 0) {
@@ -1323,17 +1340,26 @@ function buildRing(container, pubkeys) {
   }
 }
 
+// The call renders in two places at once: the full-screen voice panel
+// (mode 1) and the compact hearth inside the scroll (modes 2 and 3).
+// They show the same state; only their size differs, and switching
+// between those sizes is the mode transition itself.
 function renderHearth() {
   const seatedPubkeys = [...call.presence.keys()];
   if (call.joined) seatedPubkeys.unshift(identity.pubkey);
   const seated = seatedPubkeys.length;
 
-  voicePanelEl.classList.toggle("cold", seated === 0);
-  voicePanelEl.classList.toggle("youIn", call.joined && !call.muted);
-  voicePanelEl.classList.toggle("youMuted", call.joined && call.muted);
-  hearthLabelEl.textContent = seated === 0 ? "the hearth" : "at the hearth";
+  for (const el of [voicePanelEl, hearthEl]) {
+    el.classList.toggle("cold", seated === 0);
+    el.classList.toggle("youIn", call.joined && !call.muted);
+    el.classList.toggle("youMuted", call.joined && call.muted);
+  }
+  const label = seated === 0 ? "the hearth" : "at the hearth";
+  hearthLabelEl.textContent = label;
+  hearthLabelSEl.textContent = label;
 
   buildRing(hRingEl, seatedPubkeys);
+  buildRing(hRingSEl, seatedPubkeys);
 
   const speaker = seatedPubkeys.find((p) => call.speaking.has(p));
   let captionText, quiet;
@@ -1347,62 +1373,75 @@ function renderHearth() {
     captionText = " ";
     quiet = true;
   }
-  hCaptionEl.textContent = captionText;
-  hCaptionEl.classList.toggle("quietCap", quiet);
-
-  if (!call.joined) {
-    micLabelEl.textContent = seated === 0 ? "sit down" : "join them";
-    micHintEl.textContent = seated === 0 ? "the fire is out — tap to light it" : "opens your mic to the room";
-  } else if (call.muted) {
-    micLabelEl.textContent = "muted";
-    micHintEl.textContent = "tap to speak";
-  } else {
-    micLabelEl.textContent = "you’re on";
-    micHintEl.textContent = "tap to hush";
+  for (const el of [hCaptionEl, hCaptionSEl]) {
+    el.textContent = captionText;
+    el.classList.toggle("quietCap", quiet);
   }
 
-  updateMutePill();
+  let bigLabel, hint;
+  if (!call.joined) {
+    bigLabel = seated === 0 ? "sit down" : "join them";
+    hint = seated === 0 ? "the fire is out — tap to light it" : "tap to join them";
+  } else if (call.muted) {
+    bigLabel = "muted";
+    hint = "muted — tap to speak";
+  } else {
+    bigLabel = "you’re on";
+    hint = "you’re live — tap to hush";
+  }
+  micLabelEl.textContent = bigLabel;
+  micHintEl.textContent = hint;
+  micHintSEl.textContent = hint;
+
+  updateFloaters();
 }
 
 /* ============================================================
    the three modes, driven by scroll position
 
-   One vertical axis with the voice at the bottom of it. A single
-   number, `offset`, says how far the screen has travelled toward
-   the voice: 0 shows chat alone (mode 3), PEEK shows chat with
-   the collapsed voice block pinned beneath the composer (mode 2),
-   and the full height of the main area shows voice alone
-   (mode 1). The two layers are moved by transform in lockstep, so
-   the composer always rides directly above the voice block and
-   the mic is never above it.
+   One vertical axis with the voice at the bottom of it. Mode 1 is
+   the full-screen voice panel; everything above the detent is one
+   ordinary scroll holding the messages, the composer, and the
+   compact hearth after it. At the bottom of the conversation the
+   hearth is in view — mode 2. Scrolling up into history carries
+   it out of the viewport like any other content — mode 3. Nothing
+   is pinned and nothing resizes with the scroll: the change of
+   size between the big round microphone and the compact hearth is
+   the mode 1/2 transition itself.
 
-   Between modes 1 and 2 the boundary is a gesture on the voice
-   panel: resistive while the finger holds it, then a snap — it
-   completes or it springs back, and it never rests in between.
-   Between modes 2 and 3 the boundary is ordinary scrolling of the
-   conversation, with separate enter and leave thresholds so a
-   scroll position sitting on the line cannot oscillate. No
-   control switches modes; the one sanctioned shortcut is the chat
-   pill, which jumps from mode 1 straight to mode 3 because the
-   keyboard it opens would cover the voice block.
+   The boundary between modes 1 and 2 is a detent: a resistive
+   drag that snaps — it completes or it springs back, and it never
+   rests in between. It is crossed by dragging the voice panel
+   down, or by pulling up past the bottom of the conversation. The
+   boundary between modes 2 and 3 is ordinary scrolling, with
+   separate enter and leave thresholds so a position on the line
+   cannot oscillate. No control switches modes; the pill is the
+   one sanctioned shortcut, and the floating down arrow only
+   scrolls — it lands in mode 2 and never crosses the detent.
    ============================================================ */
 const MODE_VOICE = 1;
 const MODE_SPLIT = 2;
 const MODE_CHAT = 3;
-const PEEK = 264; // the collapsed voice block, roughly keyboard height
-const CHAT_LEAVE = 280; // scrolled this far above the bottom, the voice block slips away
-const CHAT_ENTER = 90; // back within this of the bottom, it returns
+const CHAT_ENTER = 90; // back within this of the bottom, mode 2 returns
+
+// Mode 3 begins where the hearth has fully left the viewport, so the
+// leave threshold follows the hearth's rendered height, which moves
+// with how many people are seated.
+function chatLeaveThreshold() {
+  return hearthEl.offsetHeight + 20;
+}
 
 const ui = {
   mode: MODE_VOICE,
   H: 0, // height of the main area, remeasured on resize
   dragging: false,
   kbFocus: false, // composer focused — the keyboard owns the bottom of the screen
+  wasAtBottomBeforeKbd: false,
   cameFromPill: false, // chat was entered by the pill; dismissing the keyboard goes home
 };
 
 function offsetFor(mode) {
-  return mode === MODE_VOICE ? ui.H : mode === MODE_SPLIT ? PEEK : 0;
+  return mode === MODE_VOICE ? ui.H : 0;
 }
 
 function applyOffset(offset) {
@@ -1413,6 +1452,9 @@ function applyOffset(offset) {
 function layout() {
   ui.H = mainEl.clientHeight;
   if (!ui.dragging) applyOffset(offsetFor(ui.mode));
+  // The keyboard resizes the main area; keep the composer parked on
+  // its edge rather than letting the resize land somewhere arbitrary.
+  if (ui.kbFocus) parkComposer();
 }
 
 let glideTimer = null;
@@ -1420,43 +1462,60 @@ function setMode(mode, animate = true) {
   const from = ui.mode;
   ui.mode = mode;
   stageEl.classList.toggle("mode1", mode === MODE_VOICE);
-  voicePanelEl.classList.toggle("full", mode === MODE_VOICE);
-  voicePanelEl.classList.toggle("collapsed", mode !== MODE_VOICE);
   if (animate) {
     mainEl.classList.add("glide");
     clearTimeout(glideTimer);
     glideTimer = setTimeout(() => mainEl.classList.remove("glide"), 400);
   }
   applyOffset(offsetFor(mode));
-  // Arriving at mode 2 from the voice screen lands at the latest
-  // messages — the bottom is the only scroll position that IS mode 2.
+  // Leaving the voice screen lands at the latest messages — the bottom
+  // of the conversation is the only scroll position that IS mode 2.
   if (mode === MODE_SPLIT && from === MODE_VOICE) scrollToBottom();
-  updateMutePill();
+  updateFloaters();
 }
 
-function scrollToBottom() {
-  scrollEl.scrollTop = scrollEl.scrollHeight;
+function scrollToBottom(smooth) {
+  if (smooth) scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: "smooth" });
+  else scrollEl.scrollTop = scrollEl.scrollHeight;
 }
 
 function distFromBottom() {
   return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
 }
 
-function updateMutePill() {
-  mutePillEl.hidden = !(call.joined && ui.mode === MODE_CHAT);
+// The last message parks just above the keyboard, and the hearth below
+// the composer ends up covered. The keyboard may cover the fire; the
+// fire never covers the words.
+function parkComposer() {
+  scrollEl.scrollTop = composerEl.offsetTop + composerEl.offsetHeight - scrollEl.clientHeight;
+}
+
+/* ---------- the floating controls over the conversation ---------- */
+function updateFloaters() {
+  const away = ui.mode === MODE_CHAT; // scrolled away from the bottom
+  mutePillEl.hidden = !(call.joined && away);
   mutePillEl.classList.toggle("muted", call.muted);
   mutePillLabelEl.textContent = call.muted ? "muted" : "live";
+  // The down arrow shows whenever the person has scrolled away, call or
+  // no call — except under the keyboard, where it would sit against the
+  // very composer it leads back to.
+  jumpChipEl.hidden = !(away && !ui.kbFocus);
 }
 
 mutePillEl.addEventListener("click", () => toggleMute());
 
-/* ---------- mode 1 <-> 2: a resistive drag on the voice panel ---------- */
+// The arrow returns to the bottom of the conversation — mode 2 — and
+// only by scrolling. It never carries anyone through the detent into
+// mode 1: a button should not push someone through a resistive gesture.
+jumpChipEl.addEventListener("click", () => scrollToBottom(true));
+
+/* ---------- the detent, side one: dragging the voice panel down ---------- */
 let drag = null;
 let justDragged = false;
 
 voicePanelEl.addEventListener("pointerdown", (e) => {
-  if (ui.kbFocus || e.button > 0) return;
-  drag = { id: e.pointerId, y0: e.clientY, t0: performance.now(), from: ui.mode, moved: false };
+  if (ui.mode !== MODE_VOICE || e.button > 0) return;
+  drag = { id: e.pointerId, y0: e.clientY, t0: performance.now(), moved: false };
 });
 
 voicePanelEl.addEventListener("pointermove", (e) => {
@@ -1467,31 +1526,27 @@ voicePanelEl.addEventListener("pointermove", (e) => {
     drag.moved = true;
     ui.dragging = true;
     mainEl.classList.remove("glide");
-    voicePanelEl.setPointerCapture(drag.id);
+    // Capture so the drag survives leaving the panel's bounds. A pointer
+    // that cannot be captured (synthetic events in tests) still drags.
+    try { voicePanelEl.setPointerCapture(drag.id); } catch (err) {}
   }
-  // The screen follows the finger at a discount, and past the two rest
+  // The screen follows the finger at a discount, and past the rest
   // points it turns to rubber — that is the whole of "resistive".
-  let target = offsetFor(drag.from) + dy * 0.85;
+  let target = ui.H + dy * 0.85;
   if (target > ui.H) target = ui.H + (target - ui.H) * 0.2;
-  if (target < PEEK) target = PEEK + (target - PEEK) * 0.2;
+  if (target < 0) target = target * 0.2;
   applyOffset(target);
 });
 
 function endDrag(e) {
   if (!drag || e.pointerId !== drag.id) return;
-  const wasDrag = drag.moved;
-  if (wasDrag) {
+  if (drag.moved) {
     ui.dragging = false;
     const dy = drag.y0 - e.clientY;
     const speed = Math.abs(dy) / Math.max(1, performance.now() - drag.t0); // px per ms
     const flick = speed > 0.5;
-    let go;
-    if (drag.from === MODE_VOICE) {
-      go = dy < -70 || (flick && dy < -20) ? MODE_SPLIT : MODE_VOICE;
-    } else {
-      go = dy > 70 || (flick && dy > 20) ? MODE_VOICE : MODE_SPLIT;
-    }
-    setMode(go); // completes, or springs back to where it started
+    // Completes into chat, or springs back — never rests in between.
+    setMode(dy < -70 || (flick && dy < -20) ? MODE_SPLIT : MODE_VOICE);
     justDragged = true;
     setTimeout(() => { justDragged = false; }, 80);
   }
@@ -1501,15 +1556,71 @@ voicePanelEl.addEventListener("pointerup", endDrag);
 voicePanelEl.addEventListener("pointercancel", endDrag);
 
 // A drag that ends on a button must not also press it.
-voicePanelEl.addEventListener("click", (e) => {
+function swallowDraggedClick(e) {
   if (justDragged) {
     e.stopPropagation();
     e.preventDefault();
   }
-}, true);
+}
+voicePanelEl.addEventListener("click", swallowDraggedClick, true);
+scrollEl.addEventListener("click", swallowDraggedClick, true);
 
-// The wheel has no sustained gesture to resist, so it snaps once a
-// deliberate amount of scroll has accumulated in one direction.
+/* ---------- the detent, side two: pulling up past the bottom ---------- */
+// Native scrolling owns the conversation until it has nothing left to
+// give: a touch that keeps pulling up from the very bottom engages the
+// detent instead. Rebasing y0 at the moment of engagement keeps the
+// handover seamless when one gesture reaches the bottom and keeps
+// going.
+let pull = null;
+
+scrollEl.addEventListener("touchstart", (e) => {
+  if (ui.mode === MODE_VOICE || ui.kbFocus) return;
+  pull = { y0: e.touches[0].clientY, t0: performance.now(), engaged: false };
+}, { passive: true });
+
+scrollEl.addEventListener("touchmove", (e) => {
+  if (!pull) return;
+  const y = e.touches[0].clientY;
+  const dy = pull.y0 - y;
+  if (!pull.engaged) {
+    if (dy > 8 && distFromBottom() < 2) {
+      pull.engaged = true;
+      pull.y0 = y;
+      pull.t0 = performance.now();
+      ui.dragging = true;
+      mainEl.classList.remove("glide");
+    } else if (dy < -8) {
+      pull = null; // scrolling up into history — native scrolling's business
+      return;
+    } else {
+      return;
+    }
+  }
+  e.preventDefault();
+  let target = (pull.y0 - y) * 0.85;
+  if (target > ui.H) target = ui.H + (target - ui.H) * 0.2;
+  if (target < 0) target = target * 0.2;
+  applyOffset(target);
+}, { passive: false });
+
+function endPull(e) {
+  if (!pull) return;
+  if (pull.engaged) {
+    ui.dragging = false;
+    const dy = pull.y0 - e.changedTouches[0].clientY;
+    const speed = Math.abs(dy) / Math.max(1, performance.now() - pull.t0);
+    const flick = speed > 0.5;
+    setMode(dy > 70 || (flick && dy > 20) ? MODE_VOICE : MODE_SPLIT);
+    justDragged = true;
+    setTimeout(() => { justDragged = false; }, 80);
+  }
+  pull = null;
+}
+scrollEl.addEventListener("touchend", endPull);
+scrollEl.addEventListener("touchcancel", endPull);
+
+// The wheel has no sustained gesture to resist, so the detent asks for
+// a deliberate accumulation in one direction and then snaps.
 let wheelAcc = 0;
 let wheelTimer = null;
 voicePanelEl.addEventListener("wheel", (e) => {
@@ -1520,22 +1631,11 @@ voicePanelEl.addEventListener("wheel", (e) => {
   if (ui.mode === MODE_VOICE && wheelAcc < -120) {
     wheelAcc = 0;
     setMode(MODE_SPLIT);
-  } else if (ui.mode === MODE_SPLIT && wheelAcc > 120) {
-    wheelAcc = 0;
-    setMode(MODE_VOICE);
   }
 }, { passive: false });
 
-/* ---------- mode 2 <-> 3: ordinary scrolling, with hysteresis ---------- */
-scrollEl.addEventListener("scroll", () => {
-  if (ui.kbFocus || ui.dragging || ui.mode === MODE_VOICE) return;
-  const dist = distFromBottom();
-  if (ui.mode === MODE_SPLIT && dist > CHAT_LEAVE) setMode(MODE_CHAT);
-  else if (ui.mode === MODE_CHAT && dist < CHAT_ENTER) setMode(MODE_SPLIT);
-});
-
 // Wheeling down with nothing left to scroll is the desktop's way of
-// pushing past the bottom of the conversation into the voice.
+// pulling up past the bottom of the conversation.
 let bottomAcc = 0;
 let bottomTimer = null;
 scrollEl.addEventListener("wheel", (e) => {
@@ -1549,19 +1649,31 @@ scrollEl.addEventListener("wheel", (e) => {
   }
 });
 
+/* ---------- modes 2 and 3: ordinary scrolling, with hysteresis ---------- */
+scrollEl.addEventListener("scroll", () => {
+  if (ui.dragging || ui.mode === MODE_VOICE) return;
+  const dist = distFromBottom();
+  if (ui.mode !== MODE_CHAT && dist > chatLeaveThreshold()) setMode(MODE_CHAT);
+  else if (ui.mode === MODE_CHAT && dist < CHAT_ENTER) setMode(MODE_SPLIT);
+});
+
 /* ---------- the pill, and the keyboard ---------- */
 chatPill.addEventListener("click", () => {
+  // Straight past mode 2: the keyboard is about to cover the bottom of
+  // the scroll, hearth and all.
   ui.cameFromPill = true;
-  msgInput.focus(); // the focus handler flips the mode before the keyboard rises
-  scrollToBottom();
+  setMode(MODE_CHAT);
+  msgInput.focus();
 });
 
 msgInput.addEventListener("focus", () => {
   ui.kbFocus = true;
-  // The keyboard would cover the voice block, so the voice block goes
-  // instead — this is why the pill skips mode 2 entirely.
-  if (ui.mode !== MODE_CHAT) setMode(MODE_CHAT);
-  else updateMutePill();
+  ui.wasAtBottomBeforeKbd = distFromBottom() < CHAT_ENTER;
+  updateFloaters();
+  // Park once now and again after the keyboard has resized the
+  // viewport; layout() re-parks on the resize itself.
+  requestAnimationFrame(parkComposer);
+  setTimeout(parkComposer, 300);
 });
 
 // Pressing send steals focus for a moment; that is not a dismissal.
@@ -1579,12 +1691,14 @@ msgInput.addEventListener("focusout", () => {
       return;
     }
     ui.kbFocus = false;
+    updateFloaters();
     if (ui.cameFromPill) {
       // Chat was only ever open because the pill opened it.
       ui.cameFromPill = false;
       setMode(MODE_VOICE);
-    } else {
-      setMode(distFromBottom() <= CHAT_LEAVE ? MODE_SPLIT : MODE_CHAT);
+    } else if (ui.wasAtBottomBeforeKbd) {
+      // They were beside the fire before typing; put them back there.
+      scrollToBottom();
     }
   }, 0);
 });

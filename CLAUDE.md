@@ -73,10 +73,12 @@ The screen is one vertical arrangement with the fire at the bottom of it, and wh
 scroll sits is the whole of what is showing. Opening Hearth lands at the hearth itself,
 the call as a place: the people in it, who is speaking, a microphone large enough to be
 the point, and — when someone is sharing their screen — their video in the middle with
-the faces around it. Pulling the conversation up over the fire leaves the call beneath
-the composer, collapsed to about the height of a keyboard, and scrolling back through
-history lets it slip away entirely, with only a small mute control floating over the
-words while a call is running. The microphone is never above the composer. Everything
+the faces around it. Pulling the conversation up over the fire leaves the call sitting
+compactly beneath the composer, in the scroll rather than pinned, and scrolling back
+through history carries it away like anything else in the conversation. Scrolled away, a
+down arrow floats over the words to lead back to the fire, and a small mute control
+floats beside it while a call is running. The microphone is never above the composer.
+Everything
 that is not the conversation — who you are, your key, your relays, the owner's invites —
 lives behind the account icon, which is always in the top bar.
 
