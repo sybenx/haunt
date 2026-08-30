@@ -468,7 +468,7 @@ input{font:inherit;color:inherit;background:none;border:none}
     <div class="pillSlot" id="pillSlot"></div>
     <div class="tbTitle">
       <div class="tbName" id="tbName">hearth</div>
-      <div class="tbStatus" id="tbStatus">starting&hellip;</div>
+      <div class="tbStatus" id="tbStatus">connecting</div>
     </div>
     <button class="accountBtn" id="accountBtn" aria-label="you"></button>
   </header>
@@ -506,7 +506,7 @@ input{font:inherit;color:inherit;background:none;border:none}
         <div class="vpGrab"><i></i></div>
         <div class="vpTag">
           <div class="vpName" id="vpName">hearth</div>
-          <div class="vpStatus" id="vpStatus">starting&hellip;</div>
+          <div class="vpStatus" id="vpStatus">connecting</div>
         </div>
         <div class="hearthPane">
           <div class="hearthGlow"></div>
@@ -516,11 +516,11 @@ input{font:inherit;color:inherit;background:none;border:none}
         </div>
         <button class="mic" id="micBtn" aria-label="microphone">
           <svg class="micGlyph" viewBox="0 0 34 34" fill="currentColor"><rect x="12.5" y="4" width="9" height="16" rx="4.5"/><path d="M8 15v1.5a9 9 0 0 0 18 0V15h-2.4v1.5a6.6 6.6 0 0 1-13.2 0V15z"/><rect x="15.8" y="26" width="2.4" height="4" rx="1"/><rect x="11" y="29.4" width="12" height="2.2" rx="1.1"/></svg>
-          <span class="micLabel" id="micLabel">sit down</span>
+          <span class="micLabel" id="micLabel">join</span>
           <span class="micSlash"><svg width="46" height="46" viewBox="0 0 46 46"><line x1="10" y1="36" x2="36" y2="10" stroke="#c9a074" stroke-width="3" stroke-linecap="round"/></svg></span>
         </button>
         <div class="micHint" id="micHint"></div>
-        <div><button class="leaveBtn" id="leaveBtn">slip away</button></div>
+        <div><button class="leaveBtn" id="leaveBtn">leave</button></div>
       </section>
     </div>
 
@@ -536,13 +536,12 @@ input{font:inherit;color:inherit;background:none;border:none}
 
 <div class="accountOverlay" id="accountOverlay" hidden>
   <div class="aoHead">
-    <button class="aoClose" id="accountClose" aria-label="back to the room">&#215;</button>
+    <button class="aoClose" id="accountClose" aria-label="close">&#215;</button>
   </div>
   <div class="aoScroll">
     <div class="profTop">
       <div class="av" id="aoAvatar"></div>
       <div class="profName" id="aoName"></div>
-      <div class="profSub">that's you, in this room</div>
     </div>
 
     <div class="sect">
@@ -592,7 +591,7 @@ input{font:inherit;color:inherit;background:none;border:none}
   <div class="npInner">
     <div class="npTitle">What should we call you?</div>
     <input id="nameInput" type="text" autocomplete="off" maxlength="40" placeholder="a name your friends know">
-    <button id="nameSubmit">join the others</button>
+    <button id="nameSubmit">join</button>
   </div>
 </div>
 

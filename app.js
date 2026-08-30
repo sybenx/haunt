@@ -398,7 +398,7 @@ function setComposerEnabled(enabled) {
 function connect(relayUrl) {
   const epoch = ++connEpoch;
   clearTimeout(reconnectTimer);
-  setStatus("connecting to " + relayUrl + "…");
+  setStatus("connecting");
   authState = "none";
   needsResubscribe = false;
 
@@ -412,10 +412,10 @@ function connect(relayUrl) {
       // Redemption comes before anything else — before subscribing,
       // and before the person is asked for so much as a name. Nobody
       // should type their name into a link that turns out to be spent.
-      setStatus("presenting your invite…");
+      setStatus("connecting");
       sendJoinRequest(inviteCode);
     } else {
-      setStatus("connected — joining #" + GROUP_ID + "…");
+      setStatus("connecting");
       subscribe();
       setComposerEnabled(true);
     }
@@ -437,7 +437,7 @@ function connect(relayUrl) {
     if (epoch !== connEpoch) return;
     setComposerEnabled(false);
     if (halted) return;
-    setStatus("disconnected — retrying…", "warn");
+    setStatus("reconnecting", "warn");
     reconnectTimer = setTimeout(() => connect(relayUrl), reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 1.5, 15000);
   });
@@ -480,9 +480,9 @@ async function handleFrame(frame, relayUrl) {
     const reason = frame[2] || "";
     if (reason.startsWith("auth-required")) {
       needsResubscribe = true;
-      setStatus("relay wants authentication…");
+      setStatus("connecting");
     } else {
-      setStatus("relay closed the room: " + reason, "warn");
+      setStatus("disconnected: " + reason, "warn");
     }
     return;
   }
@@ -490,7 +490,7 @@ async function handleFrame(frame, relayUrl) {
   if (type === "AUTH") {
     const challenge = frame[1];
     authState = "pending";
-    setStatus("authenticating with relay…");
+    setStatus("connecting");
     const authEvent = await finalizeEvent({
       kind: KINDS.CLIENT_AUTH,
       tags: [["relay", relayUrl], ["challenge", challenge]],
@@ -521,7 +521,7 @@ async function handleFrame(frame, relayUrl) {
         }
       } else {
         authState = "failed";
-        setStatus("relay refused authentication: " + message, "warn");
+        setStatus("the relay refused: " + message, "warn");
       }
       return;
     }
@@ -735,7 +735,7 @@ function markFailed(el, reason) {
   el.classList.add("failed");
   const note = document.createElement("div");
   note.className = "mFail";
-  note.textContent = "not sent — " + reason;
+  note.textContent = "not sent: " + reason;
   el.querySelector(".mBody").appendChild(note);
 }
 
@@ -807,7 +807,7 @@ function finishJoin(fresh) {
   params.delete("code");
   const rest = params.toString();
   history.replaceState(null, "", location.pathname + location.search + (rest ? "#" + rest : ""));
-  setStatus("connected — joining #" + GROUP_ID + "…");
+  setStatus("connecting");
   subscribe();
   setComposerEnabled(true);
   if (fresh) {
@@ -821,7 +821,7 @@ function refuseJoin(message) {
   halted = true;
   joinRefusedMsgEl.textContent = message;
   joinRefusedEl.hidden = false;
-  setStatus("not joined", "warn");
+  setStatus("you’re not in this group", "warn");
   ws.close();
 }
 
@@ -976,7 +976,7 @@ async function refreshInviteList() {
   const invites = response.result || [];
   inviteListEl.textContent = "";
   if (invites.length === 0) {
-    inviteListEl.textContent = "no invites outstanding.";
+    inviteListEl.textContent = "no invites outstanding";
     return;
   }
   const nowSec = Math.floor(Date.now() / 1000);
@@ -1444,19 +1444,19 @@ function renderHearth() {
   hCaptionEl.classList.toggle("quietCap", quiet);
 
   if (!call.joined) {
-    micLabelEl.textContent = seated === 0 ? "sit down" : "join them";
+    micLabelEl.textContent = seated === 0 ? "join" : "join them";
     micHintEl.textContent = seated === 0 ? "the fire is out — tap to light it" : "tap to join them";
   } else if (call.opening) {
     // The unmute was tapped but the track is not live yet — the mic
     // must say so rather than claim an open microphone.
-    micLabelEl.textContent = "one moment";
-    micHintEl.textContent = "opening the microphone…";
+    micLabelEl.textContent = "opening";
+    micHintEl.textContent = "";
   } else if (call.muted) {
     micLabelEl.textContent = "muted";
-    micHintEl.textContent = "muted — tap to speak";
+    micHintEl.textContent = "tap to speak";
   } else {
-    micLabelEl.textContent = "you’re on";
-    micHintEl.textContent = "you’re live — tap to hush";
+    micLabelEl.textContent = "live";
+    micHintEl.textContent = "tap to mute";
   }
 
   updateFloaters();
@@ -1939,7 +1939,7 @@ function renderRelayList() {
   if (relays.length === 0) {
     const none = document.createElement("div");
     none.className = "secNote";
-    none.textContent = "none yet — this device hasn't reached a relay.";
+    none.textContent = "no relays yet";
     aoRelaysEl.appendChild(none);
     return;
   }
@@ -2043,7 +2043,7 @@ function start(relayUrl) {
       "This device's identity can't be loaded — " + err.message +
       ". Hearth has stopped rather than mint a new identity over the top of the one that is stuck.";
     devWarnEl.hidden = false;
-    setStatus("identity unavailable", "warn");
+    setStatus("couldn’t unlock your key", "warn");
     return;
   }
   renderAccountChrome();
