@@ -41,9 +41,7 @@ const scrollEl = document.getElementById("scroll");
 const msgsEl = document.getElementById("msgs");
 const composerEl = document.getElementById("composer");
 const composerGhostEl = document.getElementById("composerGhost");
-const field = document.getElementById("field");
 const msgInput = document.getElementById("msgInput");
-const sendBtn = document.getElementById("sendBtn");
 const devWarnEl = document.getElementById("devWarn");
 const callWarnEl = document.getElementById("callWarn");
 const joinRefusedEl = document.getElementById("joinRefused");
@@ -391,10 +389,6 @@ function setStatus(text, kind) {
   }
 }
 
-function setComposerEnabled(enabled) {
-  sendBtn.disabled = !enabled || msgInput.value.trim() === "";
-}
-
 function connect(relayUrl) {
   const epoch = ++connEpoch;
   clearTimeout(reconnectTimer);
@@ -417,7 +411,6 @@ function connect(relayUrl) {
     } else {
       setStatus("connecting");
       subscribe();
-      setComposerEnabled(true);
     }
   });
 
@@ -435,7 +428,6 @@ function connect(relayUrl) {
 
   ws.addEventListener("close", () => {
     if (epoch !== connEpoch) return;
-    setComposerEnabled(false);
     if (halted) return;
     setStatus("reconnecting", "warn");
     reconnectTimer = setTimeout(() => connect(relayUrl), reconnectDelay);
@@ -754,23 +746,22 @@ async function sendMessage(text) {
   ws.send(JSON.stringify(["EVENT", event]));
 }
 
-msgInput.addEventListener("input", () => {
-  field.classList.toggle("hot", msgInput.value.trim() !== "");
-  setComposerEnabled(ws && ws.readyState === WebSocket.OPEN);
-});
-
 function trySend() {
   const text = msgInput.value.trim();
   if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
   msgInput.value = "";
-  field.classList.remove("hot");
-  setComposerEnabled(false);
   sendMessage(text);
 }
 
-sendBtn.addEventListener("click", trySend);
+// Return is the send button: the input carries enterkeyhint="send" so
+// the on-screen key says so. preventDefault keeps the key from doing
+// anything else on the page; a single-line input has no newline to
+// insert anyway.
 msgInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") trySend();
+  if (e.key === "Enter") {
+    e.preventDefault();
+    trySend();
+  }
 });
 
 /* ============================================================
@@ -809,7 +800,6 @@ function finishJoin(fresh) {
   history.replaceState(null, "", location.pathname + location.search + (rest ? "#" + rest : ""));
   setStatus("connecting");
   subscribe();
-  setComposerEnabled(true);
   if (fresh) {
     namePromptEl.hidden = false;
     nameInput.focus();
@@ -1894,20 +1884,9 @@ msgInput.addEventListener("focus", () => {
   updateFloaters();
 });
 
-// Pressing send steals focus for a moment; that is not a dismissal.
-let keepKbd = false;
-sendBtn.addEventListener("pointerdown", () => {
-  keepKbd = true;
-  setTimeout(() => { keepKbd = false; }, 400);
-});
-
 msgInput.addEventListener("focusout", () => {
   setTimeout(() => {
     if (document.activeElement === msgInput) return;
-    if (keepKbd) {
-      msgInput.focus();
-      return;
-    }
     ui.kbFocus = false;
     // Dismissal lands where the person came from. Arrivals from mode 1
     // are already in mode 2 — deliberately asymmetric, since putting
