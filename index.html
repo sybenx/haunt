@@ -59,6 +59,13 @@ input{font:inherit;color:inherit;background:none;border:none}
 .tSub.warn{color:var(--live)}
 .tSub.lit{color:var(--ember)}
 
+/* dev-only: shown when ?dev=N can't load dev-keys.json, see app.js */
+.devWarn{
+  margin:10px 18px 0;padding:10px 14px;border-radius:10px;
+  background:rgba(255,109,90,.10);border:1px solid rgba(255,109,90,.35);
+  color:var(--live);font-size:12px;line-height:1.5;
+}
+
 /* ---------- relay setup (the unusual path) ---------- */
 .relaySetup{
   margin:14px 18px;padding:14px 16px;border-radius:14px;
@@ -125,6 +132,8 @@ input{font:inherit;color:inherit;background:none;border:none}
     <div class="tTitle"><span class="hash">#</span><span id="groupLabel">_</span></div>
     <div class="tSub" id="statusLine">starting&hellip;</div>
   </header>
+
+  <div id="devWarn" class="devWarn" hidden></div>
 
   <div id="relaySetup" class="relaySetup" hidden>
     <p>No relay was given. Pass one as <code>?relay=host</code>, or type the bothy relay's

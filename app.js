@@ -21,6 +21,7 @@ const msgsEl = document.getElementById("msgs");
 const field = document.getElementById("field");
 const msgInput = document.getElementById("msgInput");
 const sendBtn = document.getElementById("sendBtn");
+const devWarnEl = document.getElementById("devWarn");
 
 groupLabel.textContent = GROUP_ID;
 
@@ -50,7 +51,56 @@ function loadOrCreateIdentity() {
   return { privkey, pubkey };
 }
 
-const identity = loadOrCreateIdentity();
+/* ------------------------------------------------------------
+   DEV ONLY. This relay gates group membership by hand — every
+   pubkey has to be added by its owner from the command line
+   before it can read or write — and a fresh localStorage key on
+   every cleared browser profile makes that constant while testing
+   with two browsers on one machine. ?dev=1, ?dev=2, etc. pick a
+   fixed key by position out of a local dev-keys.json (gitignored,
+   never committed, holds real secret keys) instead of generating
+   and storing one. There is still no box anywhere in this page for
+   pasting a key in: this only reads a file a developer put next to
+   the page themselves. It has no reason to exist in a build anyone
+   but that one developer runs, and it must never be wired to
+   anything reachable from the interface.
+   ------------------------------------------------------------ */
+async function loadDevIdentity(index) {
+  let keys;
+  try {
+    const res = await fetch("dev-keys.json");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    keys = await res.json();
+    if (!Array.isArray(keys)) throw new Error("not a JSON array");
+  } catch (err) {
+    throw new Error("couldn't load dev-keys.json (" + err.message + ")");
+  }
+  const hex = keys[index - 1];
+  if (typeof hex !== "string") {
+    throw new Error("dev-keys.json has no entry at index " + index);
+  }
+  const privkey = S.utils.hexToBytes(hex);
+  const pubkey = S.utils.bytesToHex(S.schnorr.getPublicKey(privkey));
+  return { privkey, pubkey };
+}
+
+async function resolveIdentity() {
+  const devParam = new URLSearchParams(location.search).get("dev");
+  if (!devParam) return loadOrCreateIdentity();
+  try {
+    return await loadDevIdentity(parseInt(devParam, 10));
+  } catch (err) {
+    showDevWarning("[dev] " + err.message + " — using a normal generated identity instead.");
+    return loadOrCreateIdentity();
+  }
+}
+
+function showDevWarning(text) {
+  devWarnEl.textContent = text;
+  devWarnEl.hidden = false;
+}
+
+let identity = null;
 
 /* ============================================================
    nostr event helpers (NIP-01)
@@ -358,19 +408,23 @@ msgInput.addEventListener("keydown", (e) => {
 /* ============================================================
    startup
    ============================================================ */
-const resolved = resolveRelayUrl();
-if (resolved) {
-  connect(resolved);
-} else {
-  relaySetup.hidden = false;
-  setStatus("no relay given");
-  relayConnect.addEventListener("click", () => {
-    const value = relayInput.value.trim();
-    if (!value) return;
-    relaySetup.hidden = true;
-    connect(relayUrlFromHost(value));
-  });
-  relayInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") relayConnect.click();
-  });
-}
+(async function init() {
+  identity = await resolveIdentity();
+
+  const resolved = resolveRelayUrl();
+  if (resolved) {
+    connect(resolved);
+  } else {
+    relaySetup.hidden = false;
+    setStatus("no relay given");
+    relayConnect.addEventListener("click", () => {
+      const value = relayInput.value.trim();
+      if (!value) return;
+      relaySetup.hidden = true;
+      connect(relayUrlFromHost(value));
+    });
+    relayInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") relayConnect.click();
+    });
+  }
+})();

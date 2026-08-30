@@ -1,0 +1,3 @@
+# Fixed test identities for local dev (see app.js's dev-key loading and
+# dev-keys.example.json). Holds real secret keys — never committed.
+dev-keys.json
