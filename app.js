@@ -28,7 +28,7 @@ const S = window.NobleSecp256k1;
 /* ---------- elements ---------- */
 const stageEl = document.getElementById("stage");
 const mainEl = document.getElementById("main");
-const chatPill = document.getElementById("chatPill");
+const pillSlotEl = document.getElementById("pillSlot");
 const tbNameEl = document.getElementById("tbName");
 const tbStatusEl = document.getElementById("tbStatus");
 const vpNameEl = document.getElementById("vpName");
@@ -40,6 +40,7 @@ const relayConnect = document.getElementById("relayConnect");
 const scrollEl = document.getElementById("scroll");
 const msgsEl = document.getElementById("msgs");
 const composerEl = document.getElementById("composer");
+const composerGhostEl = document.getElementById("composerGhost");
 const field = document.getElementById("field");
 const msgInput = document.getElementById("msgInput");
 const sendBtn = document.getElementById("sendBtn");
@@ -705,20 +706,16 @@ function formatTime(unixSeconds) {
 // newest-first, so a backfilled message usually belongs above what is
 // already rendered, while a live one lands at the end.
 function appendRow(row, createdAt) {
-  // Stick to the newest message when the person is at the bottom of the
-  // conversation, and also while they are typing — with the keyboard up
-  // the composer is parked at the viewport's edge, which reads as far
-  // from the scroll's true bottom but is exactly where they are.
-  const stick = distFromBottom() < 80 || ui.kbFocus;
+  // Stick to the newest message only when the person is at the bottom
+  // of the conversation; a reader further up (typing or not) keeps
+  // their place.
+  const stick = distFromBottom() < 80;
   row.dataset.ts = createdAt;
   let node = msgsEl.lastElementChild;
   while (node && Number(node.dataset.ts) > createdAt) node = node.previousElementSibling;
   if (node) node.after(row);
   else msgsEl.prepend(row);
-  if (stick) {
-    if (ui.kbFocus) parkComposer();
-    else scrollEl.scrollTop = scrollEl.scrollHeight;
-  }
+  if (stick) scrollEl.scrollTop = scrollEl.scrollHeight;
 }
 
 function renderIncoming(event) {
@@ -1423,7 +1420,6 @@ const ui = {
   compactH: 340, // the hearth's natural height, cached while measurable
   dragging: false,
   kbFocus: false, // composer focused — the keyboard owns the bottom of the screen
-  wasAtBottomBeforeKbd: false,
 };
 
 const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -1473,9 +1469,10 @@ function layout() {
   ui.H = mainEl.clientHeight;
   measureCompact();
   if (!ui.dragging && tweenId === null && ui.mode === MODE_VOICE) setHearthHeight(ui.H);
-  // The keyboard resizes the main area; keep the composer parked on
-  // its edge rather than letting the resize land somewhere arbitrary.
-  if (ui.kbFocus) parkComposer();
+  // An out-of-flow composer is positioned against measured rects, so a
+  // resize means re-measuring where it belongs.
+  if (composerState === "docked") placeComposer(slotRect(), 0);
+  else if (composerState === "lifted") rideKeyboard();
 }
 
 function setMode(mode, animate = true) {
@@ -1500,6 +1497,7 @@ function setMode(mode, animate = true) {
     if (animate) tweenHearthTo(ui.compactH, settle);
     else settle();
   }
+  updateComposerState(animate);
   updateFloaters();
 }
 
@@ -1512,22 +1510,111 @@ function distFromBottom() {
   return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
 }
 
-// The last message parks just above the keyboard, and the hearth below
-// the composer ends up covered. The keyboard may cover the fire; the
-// fire never covers the words.
-function parkComposer() {
-  scrollEl.scrollTop = composerEl.offsetTop + composerEl.offsetHeight - scrollEl.clientHeight;
+/* ---------- the composer: one element in three positions ----------
+   In the flow of the scroll (modes 2 and 3), docked into the top bar's
+   slot as the pill (mode 1), and lifted above the keyboard while
+   focused. Moving between positions is the element travelling: it
+   steps out of the flow at its current rect (a ghost holds its place),
+   animates top/left/width to the target, and on the way home rejoins
+   the flow where the ghost keeps its seat. Each journey's duration
+   follows its distance, because the three focus cases move very
+   different distances. */
+let composerState = "flow"; // flow | docked | lifted
+let composerTimer = null;
+
+// The keyboard's upper edge, in the coordinates position:fixed uses.
+// Where the keyboard overlays the page (iOS Safari) the visual
+// viewport shrinks and can be offset while the layout viewport keeps
+// its height; where the layout viewport itself resizes (Chrome
+// Android), the two agree and this is simply the viewport's bottom.
+function keyboardTop() {
+  const vv = window.visualViewport;
+  return vv ? vv.offsetTop + vv.height : window.innerHeight;
+}
+
+function slotRect() {
+  const r = pillSlotEl.getBoundingClientRect();
+  return { top: r.top, left: r.left, width: r.width };
+}
+
+function liftedRect() {
+  const s = stageEl.getBoundingClientRect();
+  return { top: keyboardTop() - composerEl.offsetHeight - 6, left: s.left, width: s.width };
+}
+
+function placeComposer(rect, ms) {
+  composerEl.style.transitionDuration = (REDUCED_MOTION ? 0 : ms) + "ms";
+  composerEl.style.top = rect.top + "px";
+  composerEl.style.left = rect.left + "px";
+  composerEl.style.width = rect.width + "px";
+}
+
+function travelMs(from, to) {
+  const d = Math.hypot(from.top - to.top, from.left - to.left);
+  return Math.round(Math.min(380, Math.max(160, d * 0.45)));
+}
+
+// While lifted, the composer's position is DERIVED from the visual
+// viewport on every viewport event, so it rides the keyboard's own
+// animation instead of racing it on an independent timer. The short
+// transition only smooths the gaps between viewport samples.
+function rideKeyboard() {
+  if (composerState !== "lifted") return;
+  placeComposer(liftedRect(), 150);
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", rideKeyboard);
+  window.visualViewport.addEventListener("scroll", rideKeyboard);
+}
+
+function updateComposerState(animate = true) {
+  const want = ui.kbFocus ? "lifted" : ui.mode === MODE_VOICE ? "docked" : "flow";
+  if (want === composerState) return;
+  clearTimeout(composerTimer);
+  const from = composerEl.getBoundingClientRect();
+
+  if (composerState === "flow") {
+    // Step out of the flow without a visual jump: freeze at the current
+    // rect and leave the ghost holding the space behind.
+    composerGhostEl.style.height = composerEl.offsetHeight + "px";
+    composerGhostEl.hidden = false;
+    composerEl.classList.add("outOfFlow");
+    placeComposer(from, 0);
+    void composerEl.offsetWidth; // commit the starting rect before travelling
+  }
+  composerState = want;
+  composerEl.classList.toggle("docked", want === "docked");
+  composerEl.classList.toggle("lifted", want === "lifted");
+
+  if (want === "flow") {
+    // Travel home to the ghost's rect, then rejoin the flow there. The
+    // scroll is deliberately untouched: a reader who focused from mode 3
+    // gets their exact place back, even if home is off the screen.
+    const target = composerGhostEl.getBoundingClientRect();
+    const ms = animate ? travelMs(from, target) : 0;
+    placeComposer({ top: target.top, left: target.left, width: target.width }, ms);
+    composerTimer = setTimeout(() => {
+      composerEl.classList.remove("outOfFlow");
+      composerEl.style.top = "";
+      composerEl.style.left = "";
+      composerEl.style.width = "";
+      composerEl.style.transitionDuration = "";
+      composerGhostEl.hidden = true;
+    }, ms + 40);
+  } else {
+    const target = want === "docked" ? slotRect() : liftedRect();
+    placeComposer(target, animate ? travelMs(from, target) : 0);
+  }
 }
 
 /* ---------- the floating controls over the conversation ---------- */
 function updateFloaters() {
   const away = ui.mode === MODE_CHAT; // scrolled away from the bottom
-  mutePillEl.hidden = !(call.joined && away);
+  // Neither floater shows under the keyboard: the lifted composer
+  // occupies the same corner of the screen.
+  mutePillEl.hidden = !(call.joined && away && !ui.kbFocus);
   mutePillEl.classList.toggle("muted", call.muted);
   mutePillLabelEl.textContent = call.muted ? "muted" : "live";
-  // The down arrow shows whenever the person has scrolled away, call or
-  // no call — except under the keyboard, where it would sit against the
-  // very composer it leads back to.
   jumpChipEl.hidden = !(away && !ui.kbFocus);
 }
 
@@ -1700,24 +1787,29 @@ scrollEl.addEventListener("scroll", () => {
   else if (ui.mode === MODE_CHAT && dist < CHAT_ENTER) setMode(MODE_SPLIT);
 });
 
-/* ---------- the pill, and the keyboard ---------- */
-chatPill.addEventListener("click", () => {
-  // Straight past mode 2 — the keyboard is about to cover the bottom
-  // of the scroll, hearth and all — and with no way back but the
-  // detent: dismissing the keyboard lands beside the fire in mode 2,
-  // never back on the voice screen.
-  setMode(MODE_CHAT, false);
-  msgInput.focus();
-});
-
+/* ---------- focusing: the composer travels, three distances ---------- */
 msgInput.addEventListener("focus", () => {
   ui.kbFocus = true;
-  ui.wasAtBottomBeforeKbd = distFromBottom() < CHAT_ENTER;
+  const preFocusScrollTop = scrollEl.scrollTop;
+  if (ui.mode === MODE_VOICE) {
+    // The largest journey: the composer leaves the top bar for the
+    // keyboard while the voice recedes and the conversation comes in
+    // behind it — one continuous transformation, not a screen swap.
+    // setMode re-derives the composer's position, which kbFocus makes
+    // "lifted".
+    setMode(MODE_SPLIT);
+  } else {
+    // From mode 2 a short lift while the voice block stays below; from
+    // mode 3 the smallest move of all, and nothing else on screen
+    // stirs.
+    updateComposerState();
+    // Browsers may scroll a container to reveal a focused input, but
+    // the input has just left the flow — a reader keeps their place.
+    requestAnimationFrame(() => {
+      if (ui.kbFocus) scrollEl.scrollTop = preFocusScrollTop;
+    });
+  }
   updateFloaters();
-  // Park once now and again after the keyboard has resized the
-  // viewport; layout() re-parks on the resize itself.
-  requestAnimationFrame(parkComposer);
-  setTimeout(parkComposer, 300);
 });
 
 // Pressing send steals focus for a moment; that is not a dismissal.
@@ -1735,12 +1827,13 @@ msgInput.addEventListener("focusout", () => {
       return;
     }
     ui.kbFocus = false;
+    // Dismissal lands where the person came from. Arrivals from mode 1
+    // are already in mode 2 — deliberately asymmetric, since putting
+    // the keyboard away means done typing, not "back to the voice
+    // screen" — and a reader in mode 3 keeps their scroll position;
+    // the composer simply travels home to its seat in the flow.
+    updateComposerState();
     updateFloaters();
-    // Putting the keyboard away means they are done typing, not that
-    // they want the voice screen back: whoever was at the bottom of
-    // the conversation — including everyone who arrived by the pill —
-    // lands beside the fire in mode 2.
-    if (ui.wasAtBottomBeforeKbd) scrollToBottom();
   }, 0);
 });
 

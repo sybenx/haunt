@@ -62,13 +62,9 @@ input{font:inherit;color:inherit;background:none;border:none}
   position:relative;z-index:30;
 }
 .tbSide{width:40px;flex:0 0 auto} /* the left stays empty for now */
-.chatPill{
-  flex:1;min-width:0;height:40px;border-radius:999px;
-  display:flex;align-items:center;justify-content:center;gap:8px;
-  background:var(--raise);border:1px solid var(--line2);
-  color:var(--faint);font-size:13.5px;
-}
-.chatPill:active{background:var(--raise2)}
+/* Where the composer docks in mode 1. The slot only reserves the
+   space; the pill the person sees IS the composer, parked here. */
+.pillSlot{flex:1;min-width:0;height:40px}
 .tbTitle{
   flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1px;
 }
@@ -86,7 +82,7 @@ input{font:inherit;color:inherit;background:none;border:none}
 }
 .accountBtn:active{border-color:var(--dim)}
 .stage.mode1 .tbTitle{display:none}
-.stage:not(.mode1) .chatPill{display:none}
+.stage:not(.mode1) .pillSlot{display:none}
 
 /* warning banners: a corrupted identity store, dev-identity load
    failure, call-signal refusals. Pinned below the topbar rather than in
@@ -158,21 +154,42 @@ input{font:inherit;color:inherit;background:none;border:none}
 .m.failed .mText{color:var(--dim)}
 .mFail{font-size:12px;color:var(--live);margin-top:2px}
 
-/* in the flow, above the hearth — it scrolls with the conversation,
-   and the hearth after it is what keeps the mic below the composer */
+/* The composer and the chat pill are ONE element in three positions:
+   in the flow above the hearth (modes 2 and 3, where it scrolls with
+   the conversation and keeps the mic below itself), docked into the
+   top bar's slot as the pill (mode 1), and lifted above the keyboard
+   while focused. Focusing is this element travelling, not one control
+   swapping for another: app.js animates top/left/width between
+   measured rects, and while lifted it follows the visual viewport so
+   it rides the keyboard's own movement. */
 .composer{flex:0 0 auto;padding:12px 14px 4px}
+.composer.outOfFlow{
+  position:fixed;z-index:35;margin:0;
+  transition:top .28s cubic-bezier(.32,.9,.35,1.02),
+    left .28s cubic-bezier(.32,.9,.35,1.02),
+    width .28s cubic-bezier(.32,.9,.35,1.02);
+}
+.composer.docked{padding:0}
+.composerGhost{flex:0 0 auto} /* holds the composer's place in the flow while it is away */
 .field{
   display:flex;align-items:center;gap:10px;
   background:var(--raise);border:1px solid var(--line);
-  border-radius:22px;padding:11px 8px 11px 16px;
+  border-radius:22px;height:48px;padding:0 8px 0 16px;
+  transition:height .28s ease,border-radius .28s ease,border-color .28s ease;
 }
-.field input{flex:1;font-size:14px;color:var(--ink)}
+.composer.docked .field{height:40px;border-radius:999px;border-color:var(--line2);padding:0 14px}
+.composer.docked input{text-align:center}
+/* 16px, not smaller: an input under that makes iOS zoom the page on
+   focus, which would wreck the keyboard ride. */
+.field input{flex:1;min-width:0;font-size:16px;color:var(--ink)}
 .field input::placeholder{color:var(--faint)}
 .sendBtn{
   width:30px;height:30px;border-radius:50%;flex:0 0 auto;
   display:flex;align-items:center;justify-content:center;
   background:var(--raise2);color:var(--faint);
+  transition:opacity .2s ease;
 }
+.composer.docked .sendBtn{opacity:0;pointer-events:none}
 .field.hot .sendBtn{background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205}
 .sendBtn:disabled{opacity:.5}
 
@@ -448,10 +465,7 @@ input{font:inherit;color:inherit;background:none;border:none}
 <div class="stage mode1" id="stage">
   <header class="topbar">
     <div class="tbSide"></div>
-    <button class="chatPill" id="chatPill">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H5.6L3 21.4V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/></svg>
-      say something&hellip;
-    </button>
+    <div class="pillSlot" id="pillSlot"></div>
     <div class="tbTitle">
       <div class="tbName" id="tbName">hearth</div>
       <div class="tbStatus" id="tbStatus">starting&hellip;</div>
@@ -487,6 +501,7 @@ input{font:inherit;color:inherit;background:none;border:none}
           </button>
         </div>
       </div>
+      <div class="composerGhost" id="composerGhost" hidden></div>
       <section class="hearth cold" id="hearth" aria-label="voice hearth">
         <div class="vpGrab"><i></i></div>
         <div class="vpTag">
