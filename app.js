@@ -747,9 +747,9 @@ async function sendMessage(text) {
 }
 
 function trySend() {
-  const text = msgInput.value.trim();
+  const text = msgInput.textContent.trim();
   if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
-  msgInput.value = "";
+  msgInput.textContent = "";
   sendMessage(text);
 }
 
