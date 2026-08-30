@@ -102,13 +102,14 @@ to trust a service. What a group depends on is a relay one of them owns.
 
 ## What's built so far
 
-Everything above describes where Haunt is going. Today, this first build does one
-thing: two people exchange a chat message through a bothy relay. Read `index.html` and
-`app.js` for what's actually wired up — this file won't be kept in sync with every
-feature as it lands. There is no voice, no channels, no direct messages, no QR device
-pairing, no invites, and the key an identity is minted around never leaves the browser
-it was created in yet. When a piece of the vision above ships, this paragraph should
-shrink, not grow with a list of what's still missing.
+Everything above describes where Haunt is going. Today, people can exchange chat
+messages and hear each other in a voice call, both through a bothy relay. Read
+`index.html` and `app.js` for what's actually wired up — this file won't be kept in
+sync with every feature as it lands. There is no channels, no direct messages, no QR
+device pairing, no invites, no video, no screen sharing, and the key an identity is
+minted around never leaves the browser it was created in yet. When a piece of the
+vision above ships, this paragraph should shrink, not grow with a list of what's still
+missing.
 
 ## Conventions
 

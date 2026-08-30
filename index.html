@@ -6,10 +6,11 @@
 <title>haunt</title>
 <style>
 /* ============================================================
-   haunt — the room, and nothing else yet.
+   haunt — the room, and a fire in it.
    Palette and shapes lifted from client-mobile.html (Hearthside):
-   warm dark ground, brass as the only accent. No hearth here —
-   this build carries no voice, so there is no fire to draw.
+   warm dark ground, brass as the only accent. The hearth markup
+   and states below are ported from that mock's #hearth section
+   almost unchanged.
    ============================================================ */
 :root{
   --stage:#0b0907;
@@ -59,8 +60,10 @@ input{font:inherit;color:inherit;background:none;border:none}
 .tSub.warn{color:var(--live)}
 .tSub.lit{color:var(--ember)}
 
-/* dev-only: shown when ?dev=N can't load dev-keys.json, see app.js */
-.devWarn{
+/* warning banners: dev-identity load failure, call-signal refusals.
+   Pinned below the topbar rather than in the scroll, so they're seen
+   regardless of where the chat or the hearth happen to be scrolled to. */
+.warnBanner{
   margin:10px 18px 0;padding:10px 14px;border-radius:10px;
   background:rgba(255,109,90,.10);border:1px solid rgba(255,109,90,.35);
   color:var(--live);font-size:12px;line-height:1.5;
@@ -105,6 +108,92 @@ input{font:inherit;color:inherit;background:none;border:none}
 .mFail{font-size:12px;color:var(--live);margin-top:2px}
 .empty{padding:40px 24px;text-align:center;font-size:13px;color:var(--faint);line-height:1.6}
 
+/* ---------- the hearth: last thing in the scroll, after the messages,
+   so scrolling the conversation away carries it with it — ported from
+   client-mobile.html's #hearth almost unchanged ---------- */
+.hearth{position:relative;padding:26px 20px 32px;margin-top:6px;text-align:center;overflow:hidden}
+.hearth::before{
+  content:'';position:absolute;top:0;left:24px;right:24px;height:1px;
+  background:linear-gradient(90deg,transparent,var(--line2),transparent);
+}
+.hearthGlow{
+  position:absolute;left:50%;bottom:-70px;transform:translateX(-50%);
+  width:360px;height:250px;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(255,140,50,.30),rgba(255,110,40,.10) 55%,transparent 76%);
+  filter:blur(6px);pointer-events:none;animation:flicker 3.6s ease-in-out infinite;
+}
+.hearth.cold .hearthGlow{background:radial-gradient(closest-side,rgba(210,170,130,.07),transparent 70%);animation:none}
+.hearthLabel{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);margin-bottom:14px;position:relative}
+.hRing{display:flex;justify-content:center;flex-wrap:wrap;gap:16px 20px;min-height:52px;position:relative;margin-bottom:6px}
+.hAv{position:relative;width:48px;height:48px;border:none;padding:0;cursor:pointer}
+.hAv .av{width:48px;height:48px;border-radius:50%;font-size:18px}
+.hAv.speaking .av{box-shadow:0 0 0 2px var(--ember),0 0 18px rgba(255,150,70,.45)}
+.hAv.speaking::after{
+  content:'';position:absolute;inset:-6px;border-radius:50%;
+  border:2px solid rgba(255,158,90,.7);animation:pulse 1.6s ease-out infinite;pointer-events:none;
+}
+.hName{position:absolute;left:50%;transform:translateX(-50%);bottom:-16px;font-size:9.5px;color:var(--faint);letter-spacing:.03em;white-space:nowrap}
+.badge{
+  position:absolute;right:-4px;bottom:-2px;width:18px;height:18px;border-radius:7px;
+  display:flex;align-items:center;justify-content:center;
+  background:#241811;border:1px solid var(--line2);color:var(--dim);
+}
+.badge.mutedB{color:var(--faint)}
+.hCaption{height:20px;margin:16px 0 4px;font-size:12px;color:var(--ember);position:relative}
+.hCaption.quietCap{color:var(--faint)}
+.mic{
+  position:relative;width:92px;height:92px;border-radius:50%;margin:4px auto 0;
+  display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 35% 28%,#423324,#211710 72%);
+  border:1px solid #3c2d1e;color:#6e5c48;
+  box-shadow:inset 0 2px 6px rgba(255,205,150,.07),inset 0 -10px 16px rgba(0,0,0,.55),0 12px 26px rgba(0,0,0,.5);
+  transition:transform .12s ease;
+}
+.mic:active{transform:scale(.94)}
+.hearth.youIn .mic{
+  background:radial-gradient(circle at 35% 26%,#ffbd72,#e07a2e 55%,#9c4a15);
+  border-color:rgba(255,190,120,.55);color:#2f1504;
+  box-shadow:0 0 0 1px rgba(255,170,90,.35),0 0 36px rgba(255,140,60,.38),
+    inset 0 2px 8px rgba(255,235,190,.55),inset 0 -12px 20px rgba(110,40,0,.5);
+}
+.hearth.youMuted .mic{
+  background:radial-gradient(circle at 35% 28%,#4a3a29,#241a11 72%);
+  border-color:rgba(255,158,90,.35);color:#8a6c4e;
+  box-shadow:inset 0 3px 10px rgba(0,0,0,.6),0 0 0 1px rgba(255,158,90,.15),0 8px 20px rgba(0,0,0,.5);
+}
+.micSlash{position:absolute;inset:0;display:none;align-items:center;justify-content:center;pointer-events:none}
+.hearth.youMuted .micSlash{display:flex}
+.micHint{margin-top:14px;font-size:11.5px;color:var(--faint);letter-spacing:.02em}
+.leaveBtn{
+  margin-top:12px;font-size:11px;color:var(--faint);letter-spacing:.08em;text-transform:uppercase;
+  padding:6px 12px;border-radius:10px;display:none;
+}
+.hearth.youIn .leaveBtn,.hearth.youMuted .leaveBtn{display:inline-block}
+.leaveBtn:active{background:var(--raise)}
+
+/* ---------- the hearth, full screen: tapping the inline hearth opens
+   this; it shows who's in the call and who's talking, nothing else ---------- */
+.callFull{
+  position:fixed;inset:0;z-index:90;background:var(--stage);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;overflow:hidden;
+}
+.callFull .hearthGlow{width:520px;height:380px;bottom:-150px}
+.callFull .hearthLabel,.callFull .hRing,.callFull .hCaption{position:relative;z-index:1}
+.callFull .hCaption{font-size:14px}
+.callFullBack{
+  position:absolute;top:18px;left:18px;z-index:2;width:38px;height:38px;border-radius:12px;
+  display:flex;align-items:center;justify-content:center;color:var(--dim);
+}
+.callFullBack:active{background:var(--raise)}
+.hRing.big{gap:22px 28px}
+.hRing.big .hAv,.hRing.big .hAv .av{width:64px;height:64px;font-size:22px}
+.hRing.big .hName{font-size:11px;bottom:-19px}
+
+@keyframes pulse{0%{transform:scale(.85);opacity:.9}70%{transform:scale(1.18);opacity:0}100%{transform:scale(1.18);opacity:0}}
+@keyframes flicker{0%,100%{opacity:.95;transform:translateX(-50%) scale(1)}40%{opacity:.75;transform:translateX(-50%) scale(.97)}70%{opacity:1;transform:translateX(-50%) scale(1.02)}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
 /* ---------- composer, at the bottom of the scroll ---------- */
 .composer{flex:0 0 auto;padding:12px 14px 16px;border-top:1px solid var(--line)}
 .field{
@@ -133,7 +222,8 @@ input{font:inherit;color:inherit;background:none;border:none}
     <div class="tSub" id="statusLine">starting&hellip;</div>
   </header>
 
-  <div id="devWarn" class="devWarn" hidden></div>
+  <div id="devWarn" class="warnBanner" hidden></div>
+  <div id="callWarn" class="warnBanner" hidden></div>
 
   <div id="relaySetup" class="relaySetup" hidden>
     <p>No relay was given. Pass one as <code>?relay=host</code>, or type the bothy relay's
@@ -146,6 +236,19 @@ input{font:inherit;color:inherit;background:none;border:none}
 
   <div class="scroll" id="scroll">
     <div class="msgs" id="msgs"></div>
+
+    <section class="hearth" id="hearth" aria-label="voice hearth">
+      <div class="hearthGlow"></div>
+      <div class="hearthLabel" id="hearthLabel">the hearth</div>
+      <div class="hRing" id="hRing"></div>
+      <div class="hCaption" id="hCaption">&nbsp;</div>
+      <button class="mic" id="micBtn" aria-label="microphone">
+        <svg width="34" height="34" viewBox="0 0 34 34" fill="currentColor"><rect x="12.5" y="4" width="9" height="16" rx="4.5"/><path d="M8 15v1.5a9 9 0 0 0 18 0V15h-2.4v1.5a6.6 6.6 0 0 1-13.2 0V15z"/><rect x="15.8" y="26" width="2.4" height="4" rx="1"/><rect x="11" y="29.4" width="12" height="2.2" rx="1.1"/></svg>
+        <span class="micSlash"><svg width="46" height="46" viewBox="0 0 46 46"><line x1="10" y1="36" x2="36" y2="10" stroke="#c9a074" stroke-width="3" stroke-linecap="round"/></svg></span>
+      </button>
+      <div class="micHint" id="micHint"></div>
+      <div><button class="leaveBtn" id="leaveBtn">slip away</button></div>
+    </section>
   </div>
 
   <div class="composer">
@@ -156,6 +259,16 @@ input{font:inherit;color:inherit;background:none;border:none}
       </button>
     </div>
   </div>
+</div>
+
+<div class="callFull" id="callFull" hidden>
+  <button class="callFullBack" id="callFullBack" aria-label="back to the room">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M11.5 3.5L5.5 9l6 5.5"/></svg>
+  </button>
+  <div class="hearthGlow"></div>
+  <div class="hearthLabel" id="cfLabel">the hearth</div>
+  <div class="hRing big" id="cfRing"></div>
+  <div class="hCaption" id="cfCaption">&nbsp;</div>
 </div>
 
 <script src="vendor/noble-secp256k1.js"></script>
