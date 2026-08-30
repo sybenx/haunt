@@ -1,5 +1,5 @@
 /* ============================================================
-   haunt — talks to one bothy relay, in one group, with chat and
+   hearth — talks to one bothy relay, in one group, with chat and
    a voice call. No channels, no DMs, no QR login, no invites, no
    profile editing, no group switching, no video, no screen share.
    Those are designed (see the mocks in the repo root) and they
@@ -7,7 +7,7 @@
    ============================================================ */
 
 const GROUP_ID = "_";
-const SUB_ID = "haunt";
+const SUB_ID = "hearth";
 
 // Ephemeral (NIP-01: kinds 20000-29999 aren't stored by relays)
 // signalling for the voice call. 25050 carries offers, answers and
@@ -24,7 +24,7 @@ const PRESENCE_TIMEOUT_MS = 13000;
 
 // STUN only, no TURN: enough for a 2-4 person mesh to find each
 // other through most NATs, with no account, token, or server-side
-// component of haunt's own. A mesh that needs to punch through
+// component of hearth's own. A mesh that needs to punch through
 // symmetric NATs reliably, or that grows past a handful of people,
 // is what an SFU is for — not this build.
 const ICE_SERVERS = [
@@ -76,14 +76,14 @@ groupLabel.textContent = GROUP_ID;
    extension has to put it.
    ============================================================ */
 function loadOrCreateIdentity() {
-  const stored = localStorage.getItem("haunt:privkey");
+  const stored = localStorage.getItem("hearth:privkey");
   if (stored) {
     const privkey = S.utils.hexToBytes(stored);
     const pubkey = S.utils.bytesToHex(S.schnorr.getPublicKey(privkey));
     return { privkey, pubkey };
   }
   const privkey = S.utils.randomPrivateKey();
-  localStorage.setItem("haunt:privkey", S.utils.bytesToHex(privkey));
+  localStorage.setItem("hearth:privkey", S.utils.bytesToHex(privkey));
   const pubkey = S.utils.bytesToHex(S.schnorr.getPublicKey(privkey));
   return { privkey, pubkey };
 }
@@ -233,7 +233,7 @@ function connect(relayUrl) {
     try {
       frame = JSON.parse(evt.data);
     } catch (e) {
-      console.error("haunt: unparseable relay frame", evt.data);
+      console.error("hearth: unparseable relay frame", evt.data);
       return;
     }
     handleFrame(frame, relayUrl);
@@ -248,7 +248,7 @@ function connect(relayUrl) {
 
   ws.addEventListener("error", () => {
     // the close handler fires right after and drives the visible retry state
-    console.error("haunt: websocket error");
+    console.error("hearth: websocket error");
   });
 }
 
@@ -613,7 +613,7 @@ async function flushQueuedCandidates(entry) {
     try {
       await entry.pc.addIceCandidate(candidate);
     } catch (err) {
-      console.error("haunt: bad ICE candidate", err);
+      console.error("hearth: bad ICE candidate", err);
     }
   }
 }
@@ -651,7 +651,7 @@ async function handleSignal(event) {
       try {
         await entry.pc.addIceCandidate(payload.candidate);
       } catch (err) {
-        console.error("haunt: bad ICE candidate", err);
+        console.error("hearth: bad ICE candidate", err);
       }
     } else {
       entry.candidateQueue.push(payload.candidate);
