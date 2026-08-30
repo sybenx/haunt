@@ -11,14 +11,14 @@
    client-mobile.html for the ground, bothy-client-mock.html for
    the voice screen. Warm dark ground, brass as the only accent.
 
-   The screen is one vertical arrangement, driven by scroll:
-   voice full-screen at the bottom of it (mode 1), and above the
-   detent one ordinary scroll holding the messages, the composer,
-   and the compact hearth after it — visible at the bottom of the
-   conversation (mode 2), carried out of the viewport by scrolling
-   up into history (mode 3). app.js moves .chatLayer and
-   .voicePanel along the detent with transforms; everything else
-   is plain scrolling.
+   The screen is one vertical arrangement, driven by scroll: one
+   scroll holding the messages, the composer, and the hearth after
+   it. The hearth is one element with two states: compact, an
+   ordinary section at the bottom of the conversation (mode 2)
+   that scrolling up carries away (mode 3); expanded, the same
+   elements filling the screen as the voice UI (mode 1). app.js
+   animates the section's height between the two while these
+   styles morph its insides; everything else is plain scrolling.
    ============================================================ */
 :root{
   --stage:#0b0907;
@@ -121,21 +121,12 @@ input{font:inherit;color:inherit;background:none;border:none}
   overflow-wrap:break-word;
 }
 
-/* ---------- the main area: two layers on one vertical axis ---------- */
-.main{flex:1;min-height:0;position:relative;overflow:hidden}
-.chatLayer{
-  position:absolute;inset:0;
-  background:var(--room);will-change:transform;
-}
-.voicePanel{
-  position:absolute;left:0;right:0;top:0;height:100%;
-  display:flex;flex-direction:column;
-  background:var(--room);will-change:transform;
-  touch-action:none; /* the panel is the drag handle back down to chat */
-}
-.main.glide .chatLayer,.main.glide .voicePanel{
-  transition:transform .34s cubic-bezier(.32,.9,.35,1.02);
-}
+/* ---------- the main area ---------- */
+.main{flex:1;min-height:0;position:relative;overflow:hidden;background:var(--room)}
+/* In mode 1 the scroll is parked at its bottom with the expanded
+   hearth filling the viewport; the conversation above it must not be
+   scrollable underneath the voice screen. */
+.stage.mode1 .scroll{overflow:hidden}
 
 /* ---------- the chat scroll: messages, composer, then the hearth ---------- */
 .scroll{
@@ -207,55 +198,84 @@ input{font:inherit;color:inherit;background:none;border:none}
 }
 .jump .down{color:var(--ember)}
 
-/* ---------- the voice panel: mode 1, full screen, and nothing else.
-   The size change between the big round mic here and the compact
-   hearth in the scroll IS the mode 1/2 transition — there is no
-   in-between layout. ---------- */
-.vpGrab{flex:0 0 auto;display:flex;justify-content:center;padding:8px 0 0}
-.vpGrab i{width:40px;height:4px;border-radius:2px;background:var(--line2)}
+/* ---------- the hearth: one element, two states ----------
+   Compact, it is client-mobile.html's hearth: an ordinary section at
+   the bottom of the scroll that the conversation carries away.
+   Expanded (mode 1), the same elements fill the screen: the pane
+   rises around the ring, the microphone grows, the room's label
+   appears under the pill. app.js animates the section's height
+   between the two while these transitions morph the insides, so the
+   detent reads as one object snapping between two states of itself —
+   there is exactly one microphone in this document. */
+.hearth{
+  position:relative;margin-top:6px;padding:26px 20px 32px;
+  text-align:center;overflow:hidden;
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+}
+.hearth::before{ /* the floor line */
+  content:'';position:absolute;top:0;left:24px;right:24px;height:1px;
+  background:linear-gradient(90deg,transparent,var(--line2),transparent);
+  transition:opacity .3s;
+}
+.hearth.expanded{padding:8px 16px 20px;touch-action:none}
+.hearth.expanded::before{opacity:0}
 
-.vpTag{flex:0 0 auto;text-align:center;padding:6px 16px 0}
+.vpGrab{display:none;justify-content:center;padding:2px 0 0}
+.vpGrab i{width:40px;height:4px;border-radius:2px;background:var(--line2)}
+.hearth.expanded .vpGrab{display:flex}
+.vpTag{display:none;text-align:center;padding:6px 16px 0}
+.hearth.expanded .vpTag{display:block}
 .vpName{font-family:var(--serif);font-size:15px;color:var(--dim);letter-spacing:.02em}
 .vpStatus{font-size:11px;color:var(--faint);margin-top:2px;letter-spacing:.03em}
 
-.hearthBox{
-  position:relative;overflow:hidden;text-align:center;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  border:1px solid var(--line);background:var(--stage);
-  flex:1;min-height:0;margin:10px 16px 0;border-radius:20px;padding:18px 14px 24px;
+/* the pane around the ring: invisible in the compact hearth, a
+   bordered panel when expanded */
+.hearthPane{
+  position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  border:1px solid transparent;border-radius:20px;background:transparent;
+  transition:border-color .35s,background-color .35s,margin .35s,padding .35s;
 }
-.hearthBox::after{ /* firelight from below when the call is live */
+.hearth.expanded .hearthPane{
+  flex:1;min-height:0;align-self:stretch;overflow:hidden;
+  margin:10px 0 6px;padding:18px 14px 24px;
+  border-color:var(--line);background:var(--stage);
+}
+.hearth.expanded:not(.cold) .hearthPane{border-color:rgba(255,158,90,.24)}
+.hearthPane::after{ /* firelight from below when the call is live */
   content:'';position:absolute;inset:0;pointer-events:none;
   background:radial-gradient(90% 75% at 50% 108%,rgba(231,140,44,.30),rgba(231,140,44,.10) 45%,transparent 72%);
   opacity:0;transition:opacity .8s;
 }
-.voicePanel:not(.cold) .hearthBox{border-color:rgba(255,158,90,.24)}
-.voicePanel:not(.cold) .hearthBox::after{opacity:1}
+.hearth.expanded:not(.cold) .hearthPane::after{opacity:1}
 .hearthGlow{
   position:absolute;left:50%;bottom:-70px;transform:translateX(-50%);
   width:360px;height:250px;border-radius:50%;
   background:radial-gradient(closest-side,rgba(255,140,50,.30),rgba(255,110,40,.10) 55%,transparent 76%);
   filter:blur(6px);pointer-events:none;animation:flicker 3.6s ease-in-out infinite;
 }
-.voicePanel.cold .hearthGlow,.hearth.cold .hearthGlow{
+.hearth.cold .hearthGlow{
   background:radial-gradient(closest-side,rgba(210,170,130,.07),transparent 70%);animation:none;
 }
 .hearthLabel{
   font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);
   margin-bottom:14px;position:relative;
 }
-.hRing{display:flex;justify-content:center;flex-wrap:wrap;gap:16px 20px;min-height:52px;position:relative;margin-bottom:6px}
-.hAv{position:relative;width:48px;height:48px;border:none;padding:0;cursor:default}
-.hAv .av{width:48px;height:48px;border-radius:50%;font-size:18px}
-.voicePanel .hAv,.voicePanel .hAv .av{width:64px;height:64px;font-size:22px}
-.voicePanel .hRing{gap:22px 26px}
+.hRing{
+  display:flex;justify-content:center;flex-wrap:wrap;gap:16px 20px;
+  min-height:52px;position:relative;margin-bottom:6px;
+}
+.hearth.expanded .hRing{gap:22px 26px}
+.hAv{position:relative;width:48px;height:48px;border:none;padding:0;cursor:default;transition:width .3s,height .3s}
+.hAv .av{border-radius:50%;font-size:18px} /* sized to the button by buildRing */
+.hearth.expanded .hAv{width:64px;height:64px}
+.hearth.expanded .hAv .av{font-size:22px}
 .hAv.speaking .av{box-shadow:0 0 0 2px var(--ember),0 0 18px rgba(255,150,70,.45)}
 .hAv.speaking::after{
   content:'';position:absolute;inset:-6px;border-radius:50%;
   border:2px solid rgba(255,158,90,.7);animation:pulse 1.6s ease-out infinite;pointer-events:none;
 }
 .hName{position:absolute;left:50%;transform:translateX(-50%);bottom:-16px;font-size:9.5px;color:var(--faint);letter-spacing:.03em;white-space:nowrap}
-.voicePanel .hName{font-size:11px;bottom:-19px}
+.hearth.expanded .hName{font-size:11px;bottom:-19px}
 .badge{
   position:absolute;right:-4px;bottom:-2px;width:18px;height:18px;border-radius:7px;
   display:flex;align-items:center;justify-content:center;
@@ -265,56 +285,43 @@ input{font:inherit;color:inherit;background:none;border:none}
 .hCaption{height:18px;margin:14px 0 4px;font-size:12px;color:var(--ember);position:relative}
 .hCaption.quietCap{color:var(--faint)}
 
-/* the mic, shared looks: giant and round on the voice screen, the
-   92px hearthside mic inside the scroll */
+/* the one microphone: 92px by the fire, grown large on the voice
+   screen — its size is a transition, not a different button */
 .mic{
-  position:relative;display:flex;align-items:center;justify-content:center;
+  position:relative;flex:0 0 auto;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  width:92px;height:92px;border-radius:50%;margin:4px auto 0;
   background:radial-gradient(circle at 35% 28%,#423324,#211710 72%);
   border:1px solid #3c2d1e;color:#6e5c48;
   box-shadow:inset 0 2px 6px rgba(255,205,150,.07),inset 0 -10px 16px rgba(0,0,0,.55),0 12px 26px rgba(0,0,0,.5);
-  transition:transform .12s ease;
+  transition:transform .12s ease,width .3s ease,height .3s ease;
 }
+.hearth.expanded .mic{width:min(52vw,218px);height:min(52vw,218px)}
 .mic:active{transform:scale(.96)}
-.micdock{
-  flex:0 0 auto;display:flex;flex-direction:column;align-items:center;
-  justify-content:center;gap:10px;padding:16px 16px 6px;
-}
-.voicePanel .mic{
-  flex-direction:column;gap:4px;
-  width:min(52vw,218px);height:min(52vw,218px);border-radius:50%;
-}
-.voicePanel .mic svg.micGlyph{width:38px;height:38px}
-.micLabel{font-family:var(--serif);font-size:16px;letter-spacing:.01em}
-.voicePanel.youIn .mic,.hearth.youIn .mic{
+.mic svg.micGlyph{width:34px;height:34px;transition:width .3s,height .3s}
+.hearth.expanded .mic svg.micGlyph{width:42px;height:42px}
+.micLabel{display:none;font-family:var(--serif);font-size:16px;letter-spacing:.01em}
+.hearth.expanded .micLabel{display:block}
+.hearth.youIn .mic{
   background:radial-gradient(circle at 35% 26%,#ffbd72,#e07a2e 55%,#9c4a15);
   border-color:rgba(255,190,120,.55);color:#2f1504;
   box-shadow:0 0 0 1px rgba(255,170,90,.35),0 0 36px rgba(255,140,60,.38),
     inset 0 2px 8px rgba(255,235,190,.55),inset 0 -12px 20px rgba(110,40,0,.5);
 }
-.voicePanel.youMuted .mic,.hearth.youMuted .mic{
+.hearth.youMuted .mic{
   background:radial-gradient(circle at 35% 28%,#4a3a29,#241a11 72%);
   border-color:rgba(255,158,90,.35);color:#8a6c4e;
   box-shadow:inset 0 3px 10px rgba(0,0,0,.6),0 0 0 1px rgba(255,158,90,.15),0 8px 20px rgba(0,0,0,.5);
 }
 .micSlash{position:absolute;inset:0;display:none;align-items:center;justify-content:center;pointer-events:none}
-.voicePanel.youMuted .micSlash,.hearth.youMuted .micSlash{display:flex}
+.hearth.youMuted .micSlash{display:flex}
 .micHint{margin-top:12px;font-size:11.5px;color:var(--faint);letter-spacing:.02em;text-align:center}
 .leaveBtn{
   margin-top:10px;font-size:11px;color:var(--faint);letter-spacing:.08em;text-transform:uppercase;
   padding:6px 12px;border-radius:10px;display:none;
 }
-.voicePanel.youIn .leaveBtn,.voicePanel.youMuted .leaveBtn,
 .hearth.youIn .leaveBtn,.hearth.youMuted .leaveBtn{display:inline-block}
 .leaveBtn:active{background:var(--raise)}
-
-/* ---------- the hearth in the scroll: client-mobile.html's compact
-   hearth, an ordinary section that the conversation carries away ---------- */
-.hearth{position:relative;padding:26px 20px 32px;margin-top:6px;text-align:center;overflow:hidden}
-.hearth::before{ /* the floor line */
-  content:'';position:absolute;top:0;left:24px;right:24px;height:1px;
-  background:linear-gradient(90deg,transparent,var(--line2),transparent);
-}
-.hearth .mic{width:92px;height:92px;border-radius:50%;margin:4px auto 0}
 
 /* ---------- the account overlay: everything that is not the conversation ---------- */
 .accountOverlay{
@@ -469,53 +476,36 @@ input{font:inherit;color:inherit;background:none;border:none}
   </div>
 
   <div class="main" id="main">
-    <div class="chatLayer" id="chatLayer">
-      <div class="scroll" id="scroll">
-        <div class="msgs" id="msgs"></div>
-        <div class="composer" id="composer">
-          <div class="field" id="field">
-            <input id="msgInput" type="text" placeholder="say something&hellip;" autocomplete="off">
-            <button class="sendBtn" id="sendBtn" aria-label="send" disabled>
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 11V2M2.5 6L6.5 2l4 4"/></svg>
-            </button>
-          </div>
-        </div>
-        <section class="hearth cold" id="hearth" aria-label="voice hearth">
-          <div class="hearthGlow"></div>
-          <div class="hearthLabel" id="hearthLabelS">the hearth</div>
-          <div class="hRing" id="hRingS"></div>
-          <div class="hCaption" id="hCaptionS">&nbsp;</div>
-          <button class="mic" id="micBtnS" aria-label="microphone">
-            <svg width="34" height="34" viewBox="0 0 34 34" fill="currentColor"><rect x="12.5" y="4" width="9" height="16" rx="4.5"/><path d="M8 15v1.5a9 9 0 0 0 18 0V15h-2.4v1.5a6.6 6.6 0 0 1-13.2 0V15z"/><rect x="15.8" y="26" width="2.4" height="4" rx="1"/><rect x="11" y="29.4" width="12" height="2.2" rx="1.1"/></svg>
-            <span class="micSlash"><svg width="46" height="46" viewBox="0 0 46 46"><line x1="10" y1="36" x2="36" y2="10" stroke="#c9a074" stroke-width="3" stroke-linecap="round"/></svg></span>
+    <div class="scroll" id="scroll">
+      <div class="msgs" id="msgs"></div>
+      <div class="composer" id="composer">
+        <div class="field" id="field">
+          <input id="msgInput" type="text" placeholder="say something&hellip;" autocomplete="off">
+          <button class="sendBtn" id="sendBtn" aria-label="send" disabled>
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 11V2M2.5 6L6.5 2l4 4"/></svg>
           </button>
-          <div class="micHint" id="micHintS"></div>
-          <div><button class="leaveBtn" id="leaveBtnS">slip away</button></div>
-        </section>
+        </div>
       </div>
-    </div>
-
-    <div class="voicePanel cold" id="voicePanel">
-      <div class="vpGrab"><i></i></div>
-      <div class="vpTag">
-        <div class="vpName" id="vpName">hearth</div>
-        <div class="vpStatus" id="vpStatus">starting&hellip;</div>
-      </div>
-      <section class="hearthBox" aria-label="voice hearth">
-        <div class="hearthGlow"></div>
-        <div class="hearthLabel" id="hearthLabel">the hearth</div>
-        <div class="hRing" id="hRing"></div>
-        <div class="hCaption" id="hCaption">&nbsp;</div>
-      </section>
-      <div class="micdock">
+      <section class="hearth cold" id="hearth" aria-label="voice hearth">
+        <div class="vpGrab"><i></i></div>
+        <div class="vpTag">
+          <div class="vpName" id="vpName">hearth</div>
+          <div class="vpStatus" id="vpStatus">starting&hellip;</div>
+        </div>
+        <div class="hearthPane">
+          <div class="hearthGlow"></div>
+          <div class="hearthLabel" id="hearthLabel">the hearth</div>
+          <div class="hRing" id="hRing"></div>
+          <div class="hCaption" id="hCaption">&nbsp;</div>
+        </div>
         <button class="mic" id="micBtn" aria-label="microphone">
-          <svg class="micGlyph" width="34" height="34" viewBox="0 0 34 34" fill="currentColor"><rect x="12.5" y="4" width="9" height="16" rx="4.5"/><path d="M8 15v1.5a9 9 0 0 0 18 0V15h-2.4v1.5a6.6 6.6 0 0 1-13.2 0V15z"/><rect x="15.8" y="26" width="2.4" height="4" rx="1"/><rect x="11" y="29.4" width="12" height="2.2" rx="1.1"/></svg>
+          <svg class="micGlyph" viewBox="0 0 34 34" fill="currentColor"><rect x="12.5" y="4" width="9" height="16" rx="4.5"/><path d="M8 15v1.5a9 9 0 0 0 18 0V15h-2.4v1.5a6.6 6.6 0 0 1-13.2 0V15z"/><rect x="15.8" y="26" width="2.4" height="4" rx="1"/><rect x="11" y="29.4" width="12" height="2.2" rx="1.1"/></svg>
           <span class="micLabel" id="micLabel">sit down</span>
           <span class="micSlash"><svg width="46" height="46" viewBox="0 0 46 46"><line x1="10" y1="36" x2="36" y2="10" stroke="#c9a074" stroke-width="3" stroke-linecap="round"/></svg></span>
         </button>
-        <button class="leaveBtn" id="leaveBtn">slip away</button>
-      </div>
-      <div class="micHint" id="micHint"></div>
+        <div class="micHint" id="micHint"></div>
+        <div><button class="leaveBtn" id="leaveBtn">slip away</button></div>
+      </section>
     </div>
 
     <div class="floaters">
