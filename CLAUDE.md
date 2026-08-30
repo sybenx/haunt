@@ -34,8 +34,11 @@ new member's key is created for them silently when they first arrive.
 A member moves their identity to a second device by showing a code on one screen and
 scanning it with the other. The code carries a temporary public key rather than the
 identity itself, so photographing it achieves nothing; the device that already holds the
-key approves the transfer and delivers the key over an encrypted message. Hearth never
-asks anyone to paste a secret into a box, in either direction.
+key approves the transfer and delivers the key over an encrypted message. Neither
+joining nor moving to a second device ever asks anyone to paste a secret into a box, in
+either direction. The one place a key is typed in is bringing an identity that already
+exists somewhere else, and that is something a person goes and finds behind the account
+icon rather than something Hearth asks them for.
 
 ## What is private and what is not
 
