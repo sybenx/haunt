@@ -1,0 +1,1356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hearthside</title>
+<style>
+/* ============================================================
+   HEARTHSIDE — a private room for a dozen friends
+   dark-first, single-theme: this page is a room at night.
+   ============================================================ */
+:root{
+  --stage:#0b0907;
+  --ground:#16100b;
+  --room:#1d1510;
+  --raise:#281d13;
+  --raise2:#332619;
+  --line:rgba(240,220,196,.09);
+  --line2:rgba(240,220,196,.16);
+  --ink:#f0e6d9;
+  --dim:#b3a08b;
+  --faint:#82705d;
+  --ember:#ff9e5a;
+  --ember-hot:#ffc07a;
+  --ember-deep:#b85f27;
+  --live:#ff6d5a;
+  --moon:#9fb0dd;
+  --moon-dim:#7d88a9;
+  --dm-ground:#12141c;
+  --dm-room:#171a24;
+  --dm-raise:#212633;
+  --dm-line:rgba(198,212,255,.09);
+  --dm-ink:#e5e9f3;
+  --dm-dim:#9aa4bf;
+  --dm-faint:#6b7590;
+  --parchment:#f2e4c9;
+  --parchment-ink:#2c1d10;
+  --serif:Georgia,'Iowan Old Style','Palatino Linotype','Book Antiqua',serif;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{
+  background:var(--stage);
+  color:var(--ink);
+  font-family:var(--sans);
+  -webkit-font-smoothing:antialiased;
+  display:flex;align-items:center;justify-content:center;
+  gap:44px;padding:32px 24px;min-height:100vh;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;text-align:inherit}
+:focus-visible{outline:2px solid var(--ember);outline-offset:2px;border-radius:4px}
+svg{display:block}
+
+/* ---------- stage & phone shell ---------- */
+.phoneCol{flex:0 0 auto}
+.phone{
+  width:413px;height:872px;border-radius:56px;padding:10px;
+  background:linear-gradient(160deg,#191512,#060504 40%);
+  box-shadow:0 40px 90px rgba(0,0,0,.7),0 0 0 1px #2a231c, inset 0 0 0 2px #000;
+  position:relative;
+}
+.screen{
+  position:relative;width:100%;height:100%;border-radius:46px;overflow:hidden;
+  background:var(--room);
+  display:flex;flex-direction:column;
+  padding-top:46px; /* status bar space */
+  user-select:none;
+}
+
+/* ---------- status bar ---------- */
+.statusbar{
+  position:absolute;top:0;left:0;right:0;height:46px;z-index:80;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 26px 0;pointer-events:none;
+}
+.sbTime{font-size:14px;font-weight:600;letter-spacing:.02em}
+.island{
+  position:absolute;left:50%;top:12px;transform:translateX(-50%);
+  width:112px;height:30px;border-radius:16px;background:#000;
+  box-shadow:inset 0 0 0 1px #111;
+}
+.sbIcons{display:flex;align-items:center;gap:6px}
+.sbIcons svg{opacity:.92}
+.homebar{
+  position:absolute;left:50%;bottom:8px;transform:translateX(-50%);
+  width:120px;height:5px;border-radius:3px;background:rgba(240,230,215,.35);
+  z-index:85;pointer-events:none;
+}
+
+/* ---------- top bar ---------- */
+.topbar{
+  height:52px;flex:0 0 auto;display:flex;align-items:center;gap:6px;
+  padding:0 8px;border-bottom:1px solid var(--line);
+  background:var(--room);position:relative;z-index:20;
+}
+.iconbtn{
+  width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+  color:var(--dim);flex:0 0 auto;
+}
+.iconbtn:active{background:var(--raise)}
+.titlewrap{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1px;padding:4px 0}
+.tTitle{
+  font-family:var(--serif);font-size:17px;letter-spacing:.01em;color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;
+  display:flex;align-items:center;gap:6px;
+}
+.tTitle .hash{color:var(--ember);font-family:var(--sans);font-weight:600;font-size:15px}
+.tSub{font-size:10.5px;color:var(--faint);letter-spacing:.04em;white-space:nowrap}
+.tSub .lit{color:var(--ember);opacity:.9}
+.topSpace{width:40px;flex:0 0 auto}
+
+/* DM header variant */
+.topbar.dmTop{background:var(--dm-room);border-color:var(--dm-line)}
+.dmTop .tTitle{color:var(--dm-ink)}
+.dmTop .tSub{color:var(--dm-faint)}
+.dmTop .iconbtn{color:var(--dm-dim)}
+.sealMark{color:var(--moon);opacity:.9}
+
+/* ---------- scrolling room ---------- */
+.body{position:relative;flex:1;min-height:0;background:var(--room)}
+.scroll{
+  position:absolute;inset:0;overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:none;
+}
+.scroll::-webkit-scrollbar{display:none}
+
+/* messages */
+.msgs{padding:14px 0 4px}
+.day{
+  display:flex;align-items:center;gap:12px;margin:18px 18px 6px;
+}
+.day::before,.day::after{content:'';flex:1;height:1px;background:var(--line)}
+.day span{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.m{display:flex;gap:10px;padding:2px 14px;align-items:flex-start}
+.m.first{margin-top:12px}
+.m .avSlot{width:36px;flex:0 0 auto}
+.av{
+  width:36px;height:36px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:15px;color:rgba(20,12,6,.85);flex:0 0 auto;
+  box-shadow:inset 0 -6px 12px rgba(0,0,0,.18);
+}
+.mBody{flex:1;min-width:0}
+.mHead{display:flex;align-items:baseline;gap:8px;margin-bottom:1px}
+.mName{font-size:13px;font-weight:650;letter-spacing:.01em}
+.mTime{font-size:10.5px;color:var(--faint)}
+.mText{font-size:14.5px;line-height:1.45;color:var(--ink);overflow-wrap:break-word}
+.m.cont .mText{margin-top:0}
+.m.cont{padding-top:1px}
+.mine .mName{color:var(--ember)}
+
+/* system row: someone started sharing */
+.sysrow{margin:14px 18px;display:flex;justify-content:center}
+.sysbtn{
+  display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:14px;
+  background:linear-gradient(180deg,rgba(255,158,90,.10),rgba(255,158,90,.05));
+  border:1px solid rgba(255,158,90,.22);color:var(--ember-hot);font-size:12.5px;
+}
+.sysbtn small{color:var(--dim);font-size:11px}
+.sysbtn .dotLive{width:6px;height:6px;border-radius:50%;background:var(--live);animation:blink 1.4s ease-in-out infinite}
+
+/* ---------- composer (in the flow, above the hearth) ---------- */
+.composer{padding:12px 14px 4px}
+.field{
+  display:flex;align-items:center;gap:10px;
+  background:var(--raise);border:1px solid var(--line);
+  border-radius:22px;padding:11px 8px 11px 16px;
+}
+.fieldText{flex:1;font-size:14px;color:var(--faint)}
+.fieldText.typed{color:var(--ink)}
+.caret{display:inline-block;width:1.5px;height:15px;background:var(--ember);vertical-align:-3px;margin-left:1px;animation:blink 1.1s step-end infinite}
+.sendBtn{
+  width:30px;height:30px;border-radius:50%;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--raise2);color:var(--faint);
+}
+.field.hot .sendBtn{background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205}
+
+/* ---------- the hearth: bottom of the room ---------- */
+.hearth{
+  position:relative;padding:26px 20px 40px;margin-top:6px;
+  text-align:center;overflow:hidden;
+}
+.hearth::before{ /* the floor line */
+  content:'';position:absolute;top:0;left:24px;right:24px;height:1px;
+  background:linear-gradient(90deg,transparent,var(--line2),transparent);
+}
+.hearthGlow{
+  position:absolute;left:50%;bottom:-70px;transform:translateX(-50%);
+  width:360px;height:250px;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(255,140,50,.30),rgba(255,110,40,.10) 55%,transparent 76%);
+  filter:blur(6px);pointer-events:none;
+  animation:flicker 3.6s ease-in-out infinite;
+}
+.hearth.cold .hearthGlow{
+  background:radial-gradient(closest-side,rgba(210,170,130,.07),transparent 70%);
+  animation:none;
+}
+.hearthLabel{
+  font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);
+  margin-bottom:14px;position:relative;
+}
+.hRing{display:flex;justify-content:center;gap:16px;min-height:52px;position:relative;margin-bottom:6px}
+.hAv{position:relative;width:48px;height:48px;border:none;padding:0;cursor:default}
+.hAv .av{width:48px;height:48px;border-radius:50%;font-size:18px}
+.hAv.tappable{cursor:pointer}
+.hAv.speaking .av{box-shadow:0 0 0 2px var(--ember),0 0 18px rgba(255,150,70,.45)}
+.hAv.speaking::after{
+  content:'';position:absolute;inset:-6px;border-radius:50%;
+  border:2px solid rgba(255,158,90,.7);animation:pulse 1.6s ease-out infinite;pointer-events:none;
+}
+.hName{
+  position:absolute;left:50%;transform:translateX(-50%);bottom:-16px;
+  font-size:9.5px;color:var(--faint);letter-spacing:.03em;white-space:nowrap;
+}
+.badge{
+  position:absolute;right:-4px;bottom:-2px;width:18px;height:18px;border-radius:7px;
+  display:flex;align-items:center;justify-content:center;
+  background:#241811;border:1px solid var(--line2);color:var(--dim);
+}
+.badge.liveB{background:#2c130d;border-color:rgba(255,109,90,.5);color:var(--live)}
+.badge.mutedB{color:var(--faint)}
+.hCaption{height:20px;margin:16px 0 4px;font-size:12px;color:var(--ember);position:relative}
+.hCaption.quietCap{color:var(--faint)}
+.mic{
+  position:relative;width:92px;height:92px;border-radius:50%;margin:4px auto 0;
+  display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 35% 28%,#423324,#211710 72%);
+  border:1px solid #3c2d1e;color:#6e5c48;
+  box-shadow:inset 0 2px 6px rgba(255,205,150,.07),inset 0 -10px 16px rgba(0,0,0,.55),0 12px 26px rgba(0,0,0,.5);
+  transition:transform .12s ease;
+}
+.mic:active{transform:scale(.94)}
+.hearth.youIn .mic{
+  background:radial-gradient(circle at 35% 26%,#ffbd72,#e07a2e 55%,#9c4a15);
+  border-color:rgba(255,190,120,.55);color:#2f1504;
+  box-shadow:0 0 0 1px rgba(255,170,90,.35),0 0 36px rgba(255,140,60,.38),
+    inset 0 2px 8px rgba(255,235,190,.55),inset 0 -12px 20px rgba(110,40,0,.5);
+}
+.hearth.youMuted .mic{
+  background:radial-gradient(circle at 35% 28%,#4a3a29,#241a11 72%);
+  border-color:rgba(255,158,90,.35);color:#8a6c4e;
+  box-shadow:inset 0 3px 10px rgba(0,0,0,.6),0 0 0 1px rgba(255,158,90,.15),0 8px 20px rgba(0,0,0,.5);
+}
+.micSlash{position:absolute;inset:0;display:none;align-items:center;justify-content:center;pointer-events:none}
+.hearth.youMuted .micSlash{display:flex}
+.micHint{margin-top:14px;font-size:11.5px;color:var(--faint);letter-spacing:.02em}
+.leaveBtn{
+  margin-top:12px;font-size:11px;color:var(--faint);letter-spacing:.08em;text-transform:uppercase;
+  padding:6px 12px;border-radius:10px;display:none;
+}
+.hearth.youIn .leaveBtn,.hearth.youMuted .leaveBtn{display:inline-block}
+.leaveBtn:active{background:var(--raise)}
+
+/* jump-to-latest chip */
+.jump{
+  position:absolute;right:14px;bottom:18px;z-index:22;
+  display:flex;align-items:center;gap:6px;
+  background:var(--raise2);border:1px solid var(--line2);border-radius:16px;
+  padding:7px 13px;font-size:11.5px;color:var(--dim);
+  box-shadow:0 6px 18px rgba(0,0,0,.45);
+}
+.jump .down{color:var(--ember)}
+
+/* ---------- sealed room (DM) ---------- */
+.dmview{background:var(--dm-room)}
+.dmview .day::before,.dmview .day::after{background:var(--dm-line)}
+.dmview .day span,.dmview .mTime{color:var(--dm-faint)}
+.dmview .mText{color:var(--dm-ink)}
+.dmview .mine .mName{color:var(--moon)}
+.sealNote{
+  margin:20px 30px 8px;text-align:center;font-size:11.5px;line-height:1.55;color:var(--dm-dim);
+}
+.sealNote .sealDisc{
+  width:34px;height:34px;border-radius:50%;margin:0 auto 10px;
+  display:flex;align-items:center;justify-content:center;color:var(--moon);
+  background:radial-gradient(circle at 35% 30%,rgba(159,176,221,.20),rgba(159,176,221,.06));
+  box-shadow:0 0 0 1px rgba(159,176,221,.25),0 0 22px rgba(159,176,221,.12);
+}
+.sealNote em{font-style:normal;color:var(--moon)}
+.dmFoot{
+  padding:6px 0 34px;text-align:center;font-size:10.5px;color:var(--dm-faint);letter-spacing:.05em;
+}
+.dmview .composer .field{background:var(--dm-raise);border-color:var(--dm-line)}
+.dmview .fieldText{color:var(--dm-faint)}
+.dmview .sendBtn{background:#2a3040;color:var(--dm-faint)}
+
+/* ---------- drawer: channels & sealed rooms ---------- */
+.layer{position:absolute;inset:0;z-index:60}
+.backdrop{position:absolute;inset:0;background:rgba(6,4,2,.6)}
+.drawerPanel{
+  position:absolute;top:0;bottom:0;left:0;width:302px;
+  background:var(--ground);border-right:1px solid var(--line);
+  padding:56px 0 14px;display:flex;flex-direction:column;
+  box-shadow:24px 0 60px rgba(0,0,0,.5);
+  animation:slideIn .22s ease;
+}
+@keyframes slideIn{from{transform:translateX(-40px);opacity:.4}to{transform:none;opacity:1}}
+.dHead{padding:4px 22px 16px;border-bottom:1px solid var(--line)}
+.dTitle{font-family:var(--serif);font-size:22px;color:var(--ink)}
+.dSub{font-size:11px;color:var(--faint);margin-top:3px;letter-spacing:.02em}
+.dScroll{flex:1;overflow-y:auto;scrollbar-width:none;padding:8px 12px}
+.dScroll::-webkit-scrollbar{display:none}
+.dLabel{
+  display:flex;align-items:center;gap:7px;
+  font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
+  margin:16px 10px 6px;
+}
+.dLabelNote{font-size:10px;color:var(--faint);opacity:.8;margin:-2px 10px 8px;letter-spacing:.01em;text-transform:none}
+.chRow{
+  width:100%;display:flex;align-items:center;gap:10px;
+  padding:9px 10px;border-radius:12px;font-size:14px;color:var(--dim);
+}
+.chRow .hash{color:var(--faint);font-weight:600}
+.chRow.active{background:var(--raise);color:var(--ink)}
+.chRow.active .hash{color:var(--ember)}
+.chRow:active{background:var(--raise)}
+.unread{
+  margin-left:auto;min-width:8px;height:8px;border-radius:4px;background:var(--ember);
+  box-shadow:0 0 8px rgba(255,158,90,.6);
+}
+.dmRow{
+  width:100%;display:flex;align-items:center;gap:10px;
+  padding:8px 10px;border-radius:12px;font-size:14px;color:var(--dm-dim);
+}
+.dmRow .av{width:28px;height:28px;border-radius:50%;font-size:12px}
+.dmRow:active,.dmRow.active{background:rgba(159,176,221,.08)}
+.dmRow .sealTiny{margin-left:auto;color:var(--moon-dim);opacity:.8}
+.dmRow .unread{margin-left:auto;background:var(--moon);box-shadow:0 0 8px rgba(159,176,221,.5)}
+.dmRow .unread + .sealTiny{margin-left:8px}
+.sealedZone{
+  margin:6px 2px 0;padding:2px 0 8px;border-radius:14px;
+  background:linear-gradient(180deg,rgba(159,176,221,.05),rgba(159,176,221,.02));
+  box-shadow:inset 0 0 0 1px rgba(159,176,221,.10);
+}
+.everyoneRow{
+  width:100%;display:flex;align-items:center;gap:10px;margin-top:14px;
+  padding:10px;border-radius:12px;font-size:13.5px;color:var(--dim);
+  border-top:1px solid var(--line);border-radius:0;padding-top:16px;
+}
+.dFoot{padding:10px 12px 30px}
+.youChip{
+  width:100%;display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:14px;
+  background:var(--raise);border:1px solid var(--line);
+}
+.youChip .av{width:34px;height:34px;border-radius:50%;font-size:14px}
+.ycName{font-size:13.5px;font-weight:650;color:var(--ink)}
+.ycSub{font-size:10.5px;color:var(--faint);margin-top:1px}
+
+/* ---------- bottom sheets ---------- */
+.sheetWrap{position:absolute;inset:0;z-index:65}
+.sheet{
+  position:absolute;left:0;right:0;bottom:0;max-height:78%;
+  background:var(--ground);border-radius:24px 24px 0 0;
+  border-top:1px solid var(--line2);
+  padding:10px 0 34px;display:flex;flex-direction:column;
+  animation:riseUp .24s ease;
+  box-shadow:0 -24px 60px rgba(0,0,0,.55);
+}
+@keyframes riseUp{from{transform:translateY(48px);opacity:.4}to{transform:none;opacity:1}}
+.grab{width:38px;height:4px;border-radius:2px;background:var(--line2);margin:2px auto 12px;flex:0 0 auto}
+.shTitle{font-family:var(--serif);font-size:19px;text-align:center;margin-bottom:4px}
+.shScroll{overflow-y:auto;scrollbar-width:none;padding:6px 20px 0}
+.shScroll::-webkit-scrollbar{display:none}
+.secLabel{
+  display:flex;align-items:baseline;gap:8px;
+  font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
+  margin:18px 2px 4px;
+}
+.secLabel b{color:var(--ember);font-weight:600;letter-spacing:.05em}
+.secNote{font-size:10.5px;color:var(--faint);opacity:.85;margin:0 2px 10px;letter-spacing:.01em}
+.pRow{display:flex;align-items:center;gap:12px;padding:7px 2px}
+.pRow .av{width:36px;height:36px;border-radius:50%;font-size:14px}
+.pName{font-size:14px;color:var(--ink)}
+.pState{margin-left:auto;font-size:11px;color:var(--faint)}
+.pState.talk{color:var(--ember)}
+.pState.share{color:var(--live)}
+.pRow.dimmed .av{filter:grayscale(.5) brightness(.6)}
+.pRow.dimmed .pName{color:var(--faint)}
+.dotOn{width:7px;height:7px;border-radius:50%;background:#7fc98b;margin-left:auto;box-shadow:0 0 6px rgba(127,201,139,.5)}
+.hearthSeat{position:relative}
+.hearthSeat .av{box-shadow:0 0 0 2px rgba(255,158,90,.35)}
+.hearthSeat.spk .av{box-shadow:0 0 0 2px var(--ember),0 0 14px rgba(255,150,70,.4)}
+
+/* profile sheet */
+.profTop{display:flex;flex-direction:column;align-items:center;gap:8px;padding:6px 24px 2px}
+.profTop .av{width:72px;height:72px;border-radius:50%;font-size:28px;box-shadow:0 0 0 3px rgba(255,158,90,.25),0 10px 30px rgba(0,0,0,.4)}
+.profName{font-family:var(--serif);font-size:22px}
+.profSub{font-size:11.5px;color:var(--faint)}
+.keyCard{
+  margin:16px 20px 0;padding:14px 16px;border-radius:16px;
+  background:var(--raise);border:1px solid var(--line);
+}
+.keyCard h4{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+.keyCard p{font-size:12.5px;line-height:1.55;color:var(--dim)}
+.profBtns{display:flex;flex-direction:column;gap:9px;padding:16px 20px 0}
+.bigBtn{
+  display:flex;align-items:center;gap:12px;padding:13px 16px;border-radius:16px;
+  background:var(--raise);border:1px solid var(--line2);
+}
+.bigBtn:active{background:var(--raise2)}
+.bigBtn .bIcon{color:var(--ember);flex:0 0 auto}
+.bbT{font-size:13.5px;font-weight:600;color:var(--ink)}
+.bbS{font-size:11px;color:var(--faint);margin-top:2px}
+.profFoot{margin-top:16px;text-align:center;font-size:10px;color:var(--faint);letter-spacing:.06em}
+
+/* ---------- video: someone's screen ---------- */
+.videoview{position:absolute;inset:0;background:#05070a;z-index:18;display:flex;flex-direction:column}
+.videoStage{position:relative;flex:1;min-height:0}
+.videoStage canvas{position:absolute;inset:0;width:100%;height:100%}
+.vTopFade{
+  position:absolute;top:0;left:0;right:0;height:84px;z-index:2;
+  background:linear-gradient(180deg,rgba(4,6,9,.85),transparent);
+  display:flex;align-items:flex-start;justify-content:space-between;padding:12px 16px;
+}
+.vWho{display:flex;align-items:center;gap:10px}
+.vWho .av{width:34px;height:34px;border-radius:50%;font-size:13px}
+.vwName{font-size:13.5px;font-weight:650}
+.vwGame{font-size:10.5px;color:rgba(240,230,215,.55);letter-spacing:.08em;text-transform:uppercase;margin-top:1px}
+.livePill{
+  display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:12px;
+  background:rgba(255,109,90,.14);border:1px solid rgba(255,109,90,.4);
+  font-size:10px;letter-spacing:.12em;color:var(--live);font-weight:700;
+}
+.livePill .dotLive{width:6px;height:6px;border-radius:50%;background:var(--live);animation:blink 1.4s ease-in-out infinite}
+.vControls{
+  position:absolute;left:0;right:0;bottom:0;z-index:2;
+  background:linear-gradient(0deg,rgba(4,6,9,.9),transparent);
+  display:flex;align-items:center;justify-content:center;gap:12px;
+  padding:40px 16px 46px;
+}
+.vBtn{
+  display:flex;align-items:center;gap:8px;padding:10px 16px;border-radius:16px;
+  background:rgba(240,230,215,.08);border:1px solid rgba(240,230,215,.15);
+  font-size:12px;color:var(--ink);backdrop-filter:blur(6px);
+}
+.vBtn:active{background:rgba(240,230,215,.16)}
+.vBtn.quiet{color:var(--dim)}
+
+/* picture-in-picture */
+.pip{
+  position:absolute;top:12px;right:12px;z-index:30;
+  width:150px;height:94px;border-radius:14px;overflow:hidden;padding:0;
+  border:1px solid rgba(255,190,120,.30);
+  box-shadow:0 14px 34px rgba(0,0,0,.6),0 0 0 1px rgba(0,0,0,.6);
+  background:#05070a;
+}
+.pip canvas{position:absolute;inset:0;width:100%;height:100%}
+.pipTag{
+  position:absolute;left:7px;bottom:6px;z-index:2;display:flex;align-items:center;gap:5px;
+  font-size:9px;letter-spacing:.08em;color:rgba(240,230,215,.9);font-weight:700;
+  text-shadow:0 1px 3px rgba(0,0,0,.8);
+}
+.pipTag .dotLive{width:5px;height:5px;border-radius:50%;background:var(--live);animation:blink 1.4s ease-in-out infinite}
+.pipX{
+  position:absolute;top:4px;right:4px;z-index:3;width:20px;height:20px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(4,6,9,.6);color:rgba(240,230,215,.8);font-size:11px;line-height:1;
+}
+
+/* ---------- keyboard layer ---------- */
+.kbdlayer{position:absolute;left:0;right:0;bottom:0;z-index:40}
+.kbdlayer .composer{background:var(--room);border-top:1px solid var(--line);padding:10px 14px}
+.kbd{
+  background:#211c16;padding:8px 4px 26px;border-top:1px solid rgba(240,220,196,.05);
+}
+.krow{display:flex;justify-content:center;gap:6px;margin-bottom:9px;padding:0 4px}
+.key{
+  flex:0 0 auto;min-width:31px;height:41px;border-radius:6px;
+  background:#3b332a;color:var(--ink);font-size:16px;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 1px 0 rgba(0,0,0,.5);
+}
+.key.wide{min-width:44px;background:#2c2620;font-size:12px;color:var(--dim)}
+.key.space{flex:1;max-width:190px}
+.key.ret{min-width:82px;background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205;font-size:13px;font-weight:600}
+
+/* ---------- QR screens ---------- */
+.qrfull{position:absolute;inset:0;z-index:70;display:flex;flex-direction:column;padding-top:46px}
+.qrShow{background:radial-gradient(120% 90% at 50% 0%,#241a11,var(--ground) 60%)}
+.qrHead{display:flex;align-items:center;padding:6px 8px 0}
+.qrHead .iconbtn{color:var(--dim)}
+.qrBody{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 34px 40px;text-align:center}
+.eyebrow{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--ember);margin-bottom:10px}
+.qrTitle{font-family:var(--serif);font-size:26px;line-height:1.2;text-wrap:balance;margin-bottom:10px}
+.qrLead{font-size:12.5px;line-height:1.6;color:var(--dim);max-width:270px;text-wrap:balance}
+.qrLead em{font-style:normal;color:var(--ember-hot)}
+.paper{
+  margin:26px 0 8px;padding:18px 18px 12px;border-radius:10px;background:var(--parchment);
+  box-shadow:0 18px 44px rgba(0,0,0,.55),0 2px 0 rgba(255,235,200,.25) inset;
+  transform:rotate(-.6deg);
+}
+.paper canvas{display:block;width:196px;height:196px;image-rendering:pixelated}
+.paperName{
+  margin-top:9px;font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+  color:rgba(44,29,16,.65);text-transform:lowercase;
+}
+.burnRow{display:flex;flex-direction:column;align-items:center;gap:7px;margin-top:16px}
+.burnText{font-size:11px;color:var(--faint)}
+.burnText b{color:var(--ember);font-weight:600;font-variant-numeric:tabular-nums}
+.burnBar{width:150px;height:3px;border-radius:2px;background:var(--raise2);overflow:hidden}
+.burnFill{height:100%;background:linear-gradient(90deg,var(--ember-deep),var(--ember));border-radius:2px}
+.qrFoot{font-size:11px;color:var(--faint);margin-top:20px;max-width:250px;line-height:1.5;text-wrap:balance}
+
+/* scanner */
+.qrScan{background:#0a0c10}
+.camera{position:absolute;inset:0;overflow:hidden}
+.camBlob{position:absolute;border-radius:50%;filter:blur(46px)}
+.camScene{position:absolute;inset:0}
+.deskLaptop{
+  position:absolute;left:50%;top:52%;transform:translate(-50%,-50%) rotate(-2.5deg);
+  width:250px;height:190px;border-radius:8px;background:#141210;
+  box-shadow:0 30px 70px rgba(0,0,0,.7),0 0 0 6px #1e1a16,0 0 60px rgba(255,170,90,.10);
+  display:flex;align-items:center;justify-content:center;
+}
+.miniPaper{background:var(--parchment);padding:10px 10px 7px;border-radius:5px;transform:rotate(.8deg);box-shadow:0 6px 20px rgba(0,0,0,.4)}
+.miniPaper canvas{display:block;width:118px;height:118px;image-rendering:pixelated}
+.miniName{margin-top:5px;font-family:var(--mono);font-size:7px;letter-spacing:.1em;color:rgba(44,29,16,.6);text-align:center}
+.finder{position:absolute;left:50%;top:52%;transform:translate(-50%,-50%);width:280px;height:280px;pointer-events:none}
+.corner{position:absolute;width:34px;height:34px;border:3px solid rgba(240,230,215,.85);transition:border-color .3s}
+.corner.tl{top:0;left:0;border-right:none;border-bottom:none;border-radius:10px 0 0 0}
+.corner.tr{top:0;right:0;border-left:none;border-bottom:none;border-radius:0 10px 0 0}
+.corner.bl{bottom:0;left:0;border-right:none;border-top:none;border-radius:0 0 0 10px}
+.corner.br{bottom:0;right:0;border-left:none;border-top:none;border-radius:0 0 10px 0}
+.sweep{
+  position:absolute;left:8px;right:8px;top:0;height:2px;border-radius:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,158,90,.9),transparent);
+  box-shadow:0 0 14px rgba(255,158,90,.6);
+  animation:sweep 2.3s ease-in-out infinite;
+}
+.qrScan.found .corner{border-color:var(--ember)}
+.qrScan.found .sweep{display:none}
+.scanCopy{
+  position:absolute;top:70px;left:0;right:0;text-align:center;z-index:3;padding:0 40px;
+}
+.scanCopy h3{font-family:var(--serif);font-size:19px;margin-bottom:6px;text-shadow:0 2px 12px rgba(0,0,0,.7)}
+.scanCopy p{font-size:11.5px;color:rgba(240,230,215,.6);line-height:1.5;text-wrap:balance;text-shadow:0 2px 10px rgba(0,0,0,.7)}
+.scanFoot{
+  position:absolute;bottom:110px;left:0;right:0;text-align:center;font-size:10.5px;
+  color:rgba(240,230,215,.45);padding:0 50px;line-height:1.5;z-index:3;
+}
+.foundSheet{
+  position:absolute;left:0;right:0;bottom:0;z-index:5;
+  background:var(--ground);border-radius:24px 24px 0 0;border-top:1px solid var(--line2);
+  padding:22px 26px 44px;text-align:center;
+  transform:translateY(105%);transition:transform .35s cubic-bezier(.2,.9,.3,1);
+  box-shadow:0 -24px 60px rgba(0,0,0,.6);
+}
+.qrScan.found .foundSheet{transform:none}
+.fsMark{
+  width:44px;height:44px;border-radius:50%;margin:0 auto 12px;
+  display:flex;align-items:center;justify-content:center;color:#2f1504;
+  background:radial-gradient(circle at 35% 28%,#ffbd72,#e07a2e 60%,#9c4a15);
+  box-shadow:0 0 30px rgba(255,140,60,.4);
+}
+.fsTitle{font-family:var(--serif);font-size:21px;margin-bottom:6px}
+.fsSub{font-size:12px;color:var(--dim);line-height:1.55;max-width:250px;margin:0 auto;text-wrap:balance}
+.fsBtn{
+  margin-top:18px;padding:12px 30px;border-radius:16px;font-size:13.5px;font-weight:650;
+  background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205;
+}
+.camFlash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:4}
+.qrScan.found .camFlash{animation:flash .5s ease-out}
+.qrScanBack{position:absolute;top:52px;left:8px;z-index:6}
+
+/* ---------- the crude switcher (not part of the design) ---------- */
+.switcher{
+  flex:0 0 250px;max-width:250px;color:#8b8177;font-family:var(--sans);
+}
+.swTitle{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#5f564c;margin-bottom:4px}
+.swNote{font-size:10.5px;color:#4d453d;margin-bottom:14px;line-height:1.4}
+.swBtn{
+  display:block;width:100%;padding:8px 12px;margin-bottom:4px;border-radius:9px;
+  font-size:12px;color:#9c9184;border:1px solid transparent;
+}
+.swBtn:hover{background:#151210}
+.swBtn.on{background:#1d1712;border-color:#33291f;color:#e8ddcd}
+.swBtn .n{display:inline-block;width:20px;color:#5f564c;font-variant-numeric:tabular-nums}
+.swBtn.on .n{color:var(--ember)}
+
+/* ---------- animation & motion ---------- */
+@keyframes pulse{0%{transform:scale(.85);opacity:.9}70%{transform:scale(1.18);opacity:0}100%{transform:scale(1.18);opacity:0}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.15}}
+@keyframes flicker{0%,100%{opacity:.95;transform:translateX(-50%) scale(1)}40%{opacity:.75;transform:translateX(-50%) scale(.97)}70%{opacity:1;transform:translateX(-50%) scale(1.02)}}
+@keyframes sweep{0%,100%{top:6%}50%{top:92%}}
+@keyframes flash{0%{opacity:.7}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+@media (max-width:920px){
+  body{flex-direction:column;gap:24px;padding:16px}
+  .switcher{flex:0 0 auto;max-width:420px;width:100%;columns:2;column-gap:8px}
+  .swTitle,.swNote{column-span:all}
+}
+</style>
+</head>
+<body>
+
+<div class="phoneCol">
+  <div class="phone">
+    <div class="screen" id="screen">
+
+      <!-- status bar -->
+      <div class="statusbar">
+        <span class="sbTime">21:47</span>
+        <div class="island"></div>
+        <span class="sbIcons">
+          <svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx="1"/><rect x="4.5" y="5" width="3" height="6" rx="1"/><rect x="9" y="2.5" width="3" height="8.5" rx="1"/><rect x="13.5" y="0" width="3" height="11" rx="1" opacity=".35"/></svg>
+          <svg width="16" height="11" viewBox="0 0 16 11" fill="currentColor"><path d="M8 9.2a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 0 0 0-2.8zM8 5.6c-1.6 0-3 .6-4.1 1.6l1.3 1.3A4.2 4.2 0 0 1 8 7.4c1.1 0 2 .4 2.8 1.1l1.3-1.3A5.9 5.9 0 0 0 8 5.6zM8 2C5.4 2 3 3 1.2 4.7l1.3 1.3A7.7 7.7 0 0 1 8 3.8c2.1 0 4 .8 5.5 2.2l1.3-1.3A9.5 9.5 0 0 0 8 2z" transform="translate(0 -2)"/></svg>
+          <svg width="25" height="12" viewBox="0 0 25 12"><rect x=".5" y=".5" width="21" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="14" height="8" rx="2" fill="currentColor"/><path d="M23 4v4a2.2 2.2 0 0 0 0-4z" fill="currentColor" opacity=".4"/></svg>
+        </span>
+      </div>
+
+      <!-- top bar -->
+      <header class="topbar" id="topbar">
+        <button class="iconbtn" id="btnDrawer" aria-label="rooms">
+          <svg width="19" height="19" viewBox="0 0 19 19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2.5 4.5h14M2.5 9.5h14M2.5 14.5h9"/></svg>
+        </button>
+        <button class="titlewrap" id="btnTitle">
+          <div class="tTitle" id="tTitle"></div>
+          <div class="tSub" id="tSub"></div>
+        </button>
+        <div class="topSpace"></div>
+      </header>
+
+      <!-- body -->
+      <div class="body" id="bodyEl">
+
+        <!-- group chat: the room -->
+        <div class="scroll" id="chatScroll">
+          <div class="msgs" id="chatMsgs"></div>
+          <div class="composer" id="chatComposer">
+            <div class="field">
+              <span class="fieldText" id="chatPlaceholder">say something to the den&hellip;</span>
+              <span class="sendBtn"><svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 11V2M2.5 6L6.5 2l4 4"/></svg></span>
+            </div>
+          </div>
+          <section class="hearth" id="hearth" aria-label="voice hearth">
+            <div class="hearthGlow"></div>
+            <div class="hearthLabel" id="hearthLabel">at the hearth</div>
+            <div class="hRing" id="hRing"></div>
+            <div class="hCaption" id="hCaption">&nbsp;</div>
+            <button class="mic" id="micBtn" aria-label="microphone">
+              <svg width="34" height="34" viewBox="0 0 34 34" fill="currentColor"><rect x="12.5" y="4" width="9" height="16" rx="4.5"/><path d="M8 15v1.5a9 9 0 0 0 18 0V15h-2.4v1.5a6.6 6.6 0 0 1-13.2 0V15z"/><rect x="15.8" y="26" width="2.4" height="4" rx="1"/><rect x="11" y="29.4" width="12" height="2.2" rx="1.1"/></svg>
+              <span class="micSlash"><svg width="46" height="46" viewBox="0 0 46 46"><line x1="10" y1="36" x2="36" y2="10" stroke="#c9a074" stroke-width="3" stroke-linecap="round"/></svg></span>
+            </button>
+            <div class="micHint" id="micHint"></div>
+            <div><button class="leaveBtn" id="leaveBtn">slip away</button></div>
+          </section>
+        </div>
+
+        <!-- sealed room: DM -->
+        <div class="scroll dmview" id="dmScroll" hidden>
+          <div class="sealNote">
+            <div class="sealDisc">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.8" y="6.4" width="9.4" height="6.6" rx="1.8"/><path d="M5 6.4V4.8a2.5 2.5 0 0 1 5 0v1.6"/></svg>
+            </div>
+            Sealed between <em>you</em> and <em>marta</em>.<br>
+            Ben's relay carries these words but cannot read them.
+          </div>
+          <div class="msgs" id="dmMsgs"></div>
+          <div class="composer">
+            <div class="field">
+              <span class="fieldText">for marta only&hellip;</span>
+              <span class="sendBtn"><svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 11V2M2.5 6L6.5 2l4 4"/></svg></span>
+            </div>
+          </div>
+          <div class="dmFoot">no hearth in here &mdash; words only</div>
+        </div>
+
+        <!-- someone's screen, full -->
+        <div class="videoview" id="videoView" hidden>
+          <div class="videoStage" id="videoStage"></div>
+          <div class="vTopFade">
+            <div class="vWho">
+              <div class="av" style="background:#7f9bb3">T</div>
+              <div>
+                <div class="vwName">theo's screen</div>
+                <div class="vwGame">hollow depths &middot; 24 min</div>
+              </div>
+            </div>
+            <div class="livePill"><span class="dotLive"></span>LIVE</div>
+          </div>
+          <div class="vControls">
+            <button class="vBtn" id="btnPip">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="12" height="10" rx="2"/><rect x="7.5" y="7.5" width="5" height="4" rx="1" fill="currentColor" stroke="none"/></svg>
+              tuck into the corner
+            </button>
+            <button class="vBtn quiet" id="btnCloseVideo">close</button>
+          </div>
+        </div>
+
+        <!-- picture-in-picture -->
+        <button class="pip" id="pip" hidden aria-label="theo's stream, tap to expand">
+          <span id="pipStage"></span>
+          <span class="pipTag"><span class="dotLive"></span>THEO</span>
+          <span class="pipX" id="pipX">&#215;</span>
+        </button>
+
+        <!-- jump to latest -->
+        <button class="jump" id="jumpChip" hidden><span class="down">&darr;</span> back to the fire</button>
+      </div>
+
+      <!-- keyboard layer -->
+      <div class="kbdlayer" id="kbdLayer" hidden>
+        <div class="composer">
+          <div class="field hot">
+            <span class="fieldText typed">omw, keep theo alive till i get there<span class="caret"></span></span>
+            <button class="sendBtn" id="kbdSend" aria-label="send"><svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 11V2M2.5 6L6.5 2l4 4"/></svg></button>
+          </div>
+        </div>
+        <div class="kbd" id="kbd"></div>
+      </div>
+
+      <!-- drawer -->
+      <div class="layer" id="drawer" hidden>
+        <div class="backdrop" data-close="drawer"></div>
+        <div class="drawerPanel">
+          <div class="dHead">
+            <div class="dTitle">the den</div>
+            <div class="dSub">twelve of us &middot; ben keeps the relay lit</div>
+          </div>
+          <div class="dScroll">
+            <div class="dLabel">rooms</div>
+            <div class="dLabelNote">open to the whole den</div>
+            <button class="chRow active" data-go="chat"><span class="hash">#</span>den</button>
+            <button class="chRow"><span class="hash">#</span>games<span class="unread"></span></button>
+            <button class="chRow"><span class="hash">#</span>plans</button>
+            <button class="chRow"><span class="hash">#</span>recipes</button>
+
+            <div class="dLabel">
+              <svg width="11" height="11" viewBox="0 0 15 15" fill="none" stroke="#9fb0dd" stroke-width="1.6"><rect x="2.8" y="6.4" width="9.4" height="6.6" rx="1.8"/><path d="M5 6.4V4.8a2.5 2.5 0 0 1 5 0v1.6"/></svg>
+              sealed
+            </div>
+            <div class="dLabelNote">one-to-one &middot; locked to your two phones</div>
+            <div class="sealedZone">
+              <button class="dmRow" data-go="dm">
+                <span class="av" style="background:#b46e93">M</span>marta
+                <span class="unread"></span>
+                <span class="sealTiny"><svg width="10" height="10" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.8" y="6.4" width="9.4" height="6.6" rx="1.8"/><path d="M5 6.4V4.8a2.5 2.5 0 0 1 5 0v1.6"/></svg></span>
+              </button>
+              <button class="dmRow">
+                <span class="av" style="background:#8fae6a">P</span>priya
+                <span class="sealTiny"><svg width="10" height="10" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.8" y="6.4" width="9.4" height="6.6" rx="1.8"/><path d="M5 6.4V4.8a2.5 2.5 0 0 1 5 0v1.6"/></svg></span>
+              </button>
+              <button class="dmRow">
+                <span class="av" style="background:#caa24d">J</span>jonas
+                <span class="sealTiny"><svg width="10" height="10" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.8" y="6.4" width="9.4" height="6.6" rx="1.8"/><path d="M5 6.4V4.8a2.5 2.5 0 0 1 5 0v1.6"/></svg></span>
+              </button>
+            </div>
+
+            <button class="everyoneRow" data-open="members">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5.5" cy="5" r="2.6"/><circle cx="11" cy="6" r="2" opacity=".6"/><path d="M1.5 13.5c0-2.4 1.8-4 4-4s4 1.6 4 4M9.8 10.2c1.9.2 3.4 1.6 3.4 3.3" opacity=".9"/></svg>
+              everyone <span style="margin-left:auto;color:var(--faint);font-size:12px">12</span>
+            </button>
+          </div>
+          <div class="dFoot">
+            <button class="youChip" data-open="profile">
+              <span class="av" style="background:#d98a56">A</span>
+              <span>
+                <div class="ycName">annie</div>
+                <div class="ycSub">that's you &middot; tap for your key</div>
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- members sheet -->
+      <div class="sheetWrap" id="membersSheet" hidden>
+        <div class="backdrop" data-close="members"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="shTitle">the den</div>
+          <div class="shScroll" id="membersBody"></div>
+        </div>
+      </div>
+
+      <!-- profile sheet -->
+      <div class="sheetWrap" id="profileSheet" hidden>
+        <div class="backdrop" data-close="profile"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="shScroll">
+            <div class="profTop">
+              <div class="av" style="background:#d98a56">A</div>
+              <div class="profName">annie</div>
+              <div class="profSub">anna to the tax office &middot; annie in the den</div>
+            </div>
+            <div class="keyCard">
+              <h4>your key</h4>
+              <p>Minted quietly on this phone the night you joined &mdash; you never saw it happen, and you never need to. It signs everything you say here, and it leaves this phone only if you carry it yourself.</p>
+            </div>
+            <div class="profBtns">
+              <button class="bigBtn" data-go="qrshow">
+                <span class="bIcon"><svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M2 2h6v6H2zM4 4v2h2V4zM12 2h6v6h-6zM14 4v2h2V4zM2 12h6v6H2zM4 14v2h2v-2zM12 12h2v2h-2zM16 12h2v2h-2zM14 14h2v2h-2zM12 16h2v2h-2zM16 16h2v2h-2z"/></svg></span>
+                <span>
+                  <div class="bbT">Show my code</div>
+                  <div class="bbS">add this login to another device</div>
+                </span>
+              </button>
+              <button class="bigBtn" data-go="qrscan">
+                <span class="bIcon"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 6V3.5A1.5 1.5 0 0 1 3.5 2H6M14 2h2.5A1.5 1.5 0 0 1 18 3.5V6M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M6 18H3.5A1.5 1.5 0 0 1 2 16.5V14M4 10h12"/></svg></span>
+                <span>
+                  <div class="bbT">Scan a code</div>
+                  <div class="bbS">fetch your login from another device</div>
+                </span>
+              </button>
+            </div>
+            <div class="profFoot">the den runs on ben's relay &middot; hearthside 0.4</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- QR: the device that shows -->
+      <div class="qrfull qrShow" id="qrShow" hidden>
+        <div class="qrHead">
+          <button class="iconbtn" data-close="qrshow" aria-label="done">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M11.5 3.5L5.5 9l6 5.5"/></svg>
+          </button>
+        </div>
+        <div class="qrBody">
+          <div class="eyebrow">second device</div>
+          <h2 class="qrTitle">Carry yourself across</h2>
+          <p class="qrLead">This square <em>is</em> your key &mdash; whoever scans it becomes you. Let only your own screens see it.</p>
+          <div class="paper">
+            <canvas id="qrCanvas" width="29" height="29"></canvas>
+            <div class="paperName">annie &middot; the den</div>
+          </div>
+          <div class="burnRow">
+            <div class="burnText">burns away in <b id="burnClock">1:30</b></div>
+            <div class="burnBar"><div class="burnFill" id="burnFill" style="width:100%"></div></div>
+          </div>
+          <p class="qrFoot">On the other device, open Hearthside and choose <b>scan</b>. Nothing to type &mdash; the code is the whole login.</p>
+        </div>
+      </div>
+
+      <!-- QR: the device that scans -->
+      <div class="qrfull qrScan" id="qrScan" hidden>
+        <div class="camera">
+          <div class="camScene" style="background:linear-gradient(200deg,#101318,#0a0c10 55%,#0d0e0d)"></div>
+          <div class="camBlob" style="left:-60px;top:-40px;width:280px;height:220px;background:rgba(255,170,90,.10)"></div>
+          <div class="camBlob" style="right:-80px;top:180px;width:260px;height:300px;background:rgba(80,100,150,.10)"></div>
+          <div class="camBlob" style="left:30px;bottom:-60px;width:320px;height:220px;background:rgba(40,32,22,.5)"></div>
+          <div class="deskLaptop">
+            <div class="miniPaper">
+              <canvas id="qrCanvasScan" width="29" height="29"></canvas>
+              <div class="miniName">annie &middot; the den</div>
+            </div>
+          </div>
+          <div class="finder">
+            <div class="corner tl"></div><div class="corner tr"></div>
+            <div class="corner bl"></div><div class="corner br"></div>
+            <div class="sweep"></div>
+          </div>
+          <div class="camFlash"></div>
+        </div>
+        <div class="scanCopy">
+          <h3>Find your other self</h3>
+          <p>Point this at the code on the device you're already in on.</p>
+        </div>
+        <div class="scanFoot">no password exists to type &mdash; on purpose. the code carries the whole of you.</div>
+        <button class="iconbtn qrScanBack" data-close="qrscan" aria-label="back" style="color:rgba(240,230,215,.7)">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M11.5 3.5L5.5 9l6 5.5"/></svg>
+        </button>
+        <div class="foundSheet">
+          <div class="fsMark">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10.5l4.2 4.2L16.5 5.5"/></svg>
+          </div>
+          <div class="fsTitle">Found you, annie.</div>
+          <div class="fsSub">Your key has moved in. Let the code on the other screen burn.</div>
+          <button class="fsBtn" data-go="chat">step inside</button>
+        </div>
+      </div>
+
+      <div class="homebar"></div>
+    </div>
+  </div>
+</div>
+
+<!-- crude switcher, not part of the design -->
+<aside class="switcher">
+  <div class="swTitle">moments</div>
+  <div class="swNote">a mock switcher for review &mdash; not part of the design. everything inside the phone is also tappable.</div>
+  <div id="swList"></div>
+</aside>
+
+<script>
+/* ============================ data ============================ */
+const P={
+  you:{n:'annie',c:'#d98a56'},
+  marta:{n:'marta',c:'#b46e93'},
+  jonas:{n:'jonas',c:'#caa24d'},
+  priya:{n:'priya',c:'#8fae6a'},
+  theo:{n:'theo',c:'#7f9bb3'},
+  sam:{n:'sam',c:'#c96b56'},
+  ruthie:{n:'ruthie',c:'#a98bc9'},
+  ben:{n:'ben',c:'#8a7a68'},
+  kav:{n:'kav',c:'#6aa89b'},
+  lena:{n:'lena',c:'#d0a0a0'},
+  doug:{n:'doug',c:'#97a06b'},
+  nia:{n:'nia',c:'#c07f4f'}
+};
+const ONLINE=new Set(['you','marta','jonas','priya','theo','sam','ben']);
+
+const CHAT=[
+  {d:'thursday'},
+  {a:'ruthie',tm:'19:02',t:'ok important. who is bringing the projector saturday'},
+  {a:'jonas',tm:'19:04',t:'me. and the good hdmi this time, i labelled it'},
+  {a:'lena',tm:'19:04',t:'the label says “the good one” and nothing else'},
+  {a:'jonas',tm:'19:05',t:'the system works'},
+  {a:'marta',tm:'19:11',t:'i’ll bring soup if somebody owns bread'},
+  {a:'sam',tm:'19:12',t:'bread guy reporting for duty'},
+  {a:'kav',tm:'19:30',t:'i can do 8ish, train gets in at 7:40'},
+  {a:'ruthie',tm:'19:31',t:'perfect. den at 8, film at 9, no exceptions for jonas'},
+  {d:'tonight'},
+  {a:'priya',tm:'21:02',t:'theo is about to try the boss again'},
+  {a:'priya',tm:'21:03',t:'he has been “about to” for forty minutes'},
+  {a:'theo',tm:'21:05',t:'preparation is a skill'},
+  {a:'ben',tm:'21:07',t:'the relay has watched you die fourteen times tonight. it keeps everything, you know'},
+  {a:'theo',tm:'21:08',t:'the relay should mind its business'},
+  {sys:true,tm:'21:22',t:'theo started sharing his screen'},
+  {a:'priya',tm:'21:23',t:'GET IN HERE he’s at the door'},
+  {a:'jonas',tm:'21:23',t:'in'},
+  {a:'marta',tm:'21:24',t:'watching from the kitchen, someone narrate for me'},
+  {a:'you',tm:'21:26',t:'omw'},
+  {a:'jonas',tm:'21:44',t:'one mask left. one. i can’t breathe'},
+  {a:'ruthie',tm:'21:45',t:'i can hear priya screaming through the floor. i live alone'}
+];
+
+const DM=[
+  {a:'marta',tm:'18:40',t:'ok. jonas’s birthday. the record player. are we doing it'},
+  {a:'you',tm:'18:52',t:'we’re doing it. he sent me the same listing three times this week'},
+  {a:'marta',tm:'18:53',t:'i know. he sighs at it like it’s a dog in a shelter'},
+  {a:'marta',tm:'18:55',t:'sixty each if all twelve chip in. not a word in the den'},
+  {a:'you',tm:'19:01',t:'sealed lips. i’ll ask ruthie tomorrow, quietly'},
+  {a:'marta',tm:'19:02',t:'this is why we have these little rooms'}
+];
+
+/* ============================ state ============================ */
+const state={
+  view:'chat',            // chat | dm | video | qrshow | qrscan
+  pip:false,
+  kbd:false,
+  scrollMode:'bottom',    // bottom | up
+  call:{others:[],speaking:null,streamer:null,youIn:false,youMuted:false}
+};
+function callPreset(name){
+  switch(name){
+    case 'empty':return{others:[],speaking:null,streamer:null,youIn:false,youMuted:false};
+    case 'two':return{others:['jonas','priya'],speaking:null,streamer:null,youIn:false,youMuted:false};
+    case 'three':return{others:['jonas','priya','theo'],speaking:'jonas',streamer:'theo',youIn:false,youMuted:false};
+    case 'selfmuted':return{others:['jonas','priya','theo'],speaking:'jonas',streamer:'theo',youIn:true,youMuted:true};
+  }
+}
+
+/* ============================ el helpers ============================ */
+const $=id=>document.getElementById(id);
+function el(tag,cls,html){const e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e}
+function avEl(id,extra){const e=el('div','av'+(extra?' '+extra:''));e.style.background=P[id].c;e.textContent=P[id].n[0].toUpperCase();return e}
+
+/* ============================ messages ============================ */
+function buildMsgs(container,data){
+  container.innerHTML='';
+  let prev=null;
+  for(const m of data){
+    if(m.d){container.appendChild(el('div','day','<span>'+m.d+'</span>'));prev=null;continue}
+    if(m.sys){
+      const row=el('div','sysrow');
+      const b=el('button','sysbtn','<span class="dotLive"></span>'+m.t+'&ensp;<small>tap to watch</small>');
+      b.addEventListener('click',()=>go('video'));
+      row.appendChild(b);container.appendChild(row);prev=null;continue;
+    }
+    const cont=prev===m.a;
+    const row=el('div','m'+(cont?' cont':' first')+(m.a==='you'?' mine':''));
+    const slot=el('div','avSlot');
+    if(!cont)slot.appendChild(avEl(m.a));
+    row.appendChild(slot);
+    const body=el('div','mBody');
+    if(!cont){
+      const head=el('div','mHead');
+      const nm=el('span','mName',P[m.a].n);
+      nm.style.color=m.a==='you'?'':mix(P[m.a].c);
+      head.appendChild(nm);
+      head.appendChild(el('span','mTime',m.tm));
+      body.appendChild(head);
+    }
+    body.appendChild(el('div','mText',m.t));
+    row.appendChild(body);
+    container.appendChild(row);
+    prev=m.a;
+  }
+}
+/* lift a person's colour toward ink so names stay readable on the dark room */
+function mix(hex){
+  const n=parseInt(hex.slice(1),16),r=n>>16,g=(n>>8)&255,b=n&255;
+  const f=(v,t)=>Math.round(v+(t-v)*.35);
+  return 'rgb('+f(r,240)+','+f(g,230)+','+f(b,214)+')';
+}
+
+/* ============================ hearth ============================ */
+function renderHearth(){
+  const c=state.call,h=$('hearth');
+  const seated=c.others.length+(c.youIn?1:0);
+  h.classList.toggle('cold',seated===0);
+  h.classList.toggle('youIn',c.youIn&&!c.youMuted);
+  h.classList.toggle('youMuted',c.youIn&&c.youMuted);
+  $('hearthLabel').textContent=seated===0?'the hearth':'at the hearth';
+  const ring=$('hRing');ring.innerHTML='';
+  if(c.youIn){
+    const b=el('button','hAv');
+    const a=avEl('you');a.style.borderRadius='50%';a.style.width='48px';a.style.height='48px';a.style.fontSize='18px';
+    b.appendChild(a);
+    if(c.youMuted)b.appendChild(el('span','badge mutedB','<svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"><rect x="4.4" y="1" width="3.2" height="6" rx="1.6"/><path d="M2.5 5.4v.6a3.5 3.5 0 0 0 7 0v-.6h-1v.6a2.5 2.5 0 0 1-5 0v-.6z"/><line x1="1.5" y1="10.5" x2="10.5" y2="1.5" stroke="#d98a56" stroke-width="1.4" stroke-linecap="round"/></svg>'));
+    b.appendChild(el('span','hName','you'));
+    ring.appendChild(b);
+  }
+  for(const id of c.others){
+    const b=el('button','hAv'+(c.speaking===id?' speaking':'')+(c.streamer===id?' tappable':''));
+    const a=avEl(id);a.style.borderRadius='50%';a.style.width='48px';a.style.height='48px';a.style.fontSize='18px';
+    b.appendChild(a);
+    if(c.streamer===id){
+      b.appendChild(el('span','badge liveB','<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="9" height="6.5" rx="1.5"/><line x1="4" y1="10.8" x2="8" y2="10.8" stroke-linecap="round"/></svg>'));
+      b.title='theo is sharing his screen';
+      b.addEventListener('click',()=>go('video'));
+    }
+    b.appendChild(el('span','hName',P[id].n));
+    ring.appendChild(b);
+  }
+  if(seated===0){
+    ring.innerHTML='<div style="font-size:12px;color:var(--faint);align-self:center">no one’s by the fire</div>';
+  }
+  const cap=$('hCaption');
+  if(c.speaking){cap.className='hCaption';cap.textContent=P[c.speaking].n+' is talking'}
+  else if(seated>0){cap.className='hCaption quietCap';cap.textContent='quiet crackling'}
+  else{cap.className='hCaption quietCap';cap.innerHTML='&nbsp;'}
+  const hint=$('micHint');
+  if(!c.youIn)hint.textContent=seated===0?'the fire is out — tap to light it':'tap to join them';
+  else if(c.youMuted)hint.textContent='muted — tap to speak';
+  else hint.textContent='you’re live — tap to hush';
+  renderTopbar();
+}
+$('micBtn').addEventListener('click',()=>{
+  const c=state.call;
+  if(!c.youIn){c.youIn=true;c.youMuted=false}
+  else c.youMuted=!c.youMuted;
+  renderHearth();
+});
+$('leaveBtn').addEventListener('click',()=>{state.call.youIn=false;renderHearth()});
+
+/* ============================ top bar ============================ */
+function renderTopbar(){
+  const tb=$('topbar'),t=$('tTitle'),s=$('tSub');
+  tb.classList.toggle('dmTop',state.view==='dm');
+  const seated=state.call.others.length+(state.call.youIn?1:0);
+  if(state.view==='dm'){
+    t.innerHTML='<span class="sealMark"><svg width="12" height="12" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.8" y="6.4" width="9.4" height="6.6" rx="1.8"/><path d="M5 6.4V4.8a2.5 2.5 0 0 1 5 0v1.6"/></svg></span>marta';
+    s.textContent='sealed · just the two of you';
+  }else if(state.view==='video'){
+    t.innerHTML='theo’s screen';
+    s.textContent='sharing with the den · 24 min';
+  }else{
+    t.innerHTML='<span class="hash">#</span>den';
+    s.innerHTML=(seated===0?'the hearth is dark':'<span class="lit">'+seated+' at the hearth</span>')+' · 12 in the den';
+  }
+}
+
+/* ============================ members sheet ============================ */
+function renderMembers(){
+  const c=state.call,box=$('membersBody');box.innerHTML='';
+  const seated=[];
+  if(c.youIn)seated.push('you');
+  seated.push(...c.others);
+  const lbl=el('div','secLabel','at the hearth <b>'+(seated.length||'')+'</b>');
+  box.appendChild(lbl);
+  box.appendChild(el('div','secNote',seated.length?'in the voice call right now':'the fire’s out — nobody’s in the call'));
+  for(const id of seated){
+    const r=el('div','pRow hearthSeat'+(c.speaking===id?' spk':''));
+    r.appendChild(avEl(id));
+    r.appendChild(el('span','pName',id==='you'?'annie <span style="color:var(--faint);font-size:11px">· you</span>':P[id].n));
+    let st='';
+    if(c.speaking===id)st='<span class="pState talk">talking</span>';
+    else if(c.streamer===id)st='<span class="pState share">sharing his screen</span>';
+    else if(id==='you'&&c.youMuted)st='<span class="pState">muted</span>';
+    else st='<span class="pState">listening</span>';
+    r.insertAdjacentHTML('beforeend',st);
+    box.appendChild(r);
+  }
+  box.appendChild(el('div','secLabel','everyone <b>12</b>'));
+  box.appendChild(el('div','secNote','members of the den, at the fire or not'));
+  for(const id of Object.keys(P)){
+    const on=ONLINE.has(id);
+    const r=el('div','pRow'+(on?'':' dimmed'));
+    r.appendChild(avEl(id));
+    r.appendChild(el('span','pName',id==='you'?'annie':P[id].n+(id==='ben'?' <span style="color:var(--faint);font-size:11px">· keeps the relay</span>':'')));
+    if(on)r.appendChild(el('span','dotOn'));
+    else r.insertAdjacentHTML('beforeend','<span class="pState">asleep</span>');
+    box.appendChild(r);
+  }
+}
+
+/* ============================ keyboard ============================ */
+(function buildKbd(){
+  const rows=[['q','w','e','r','t','y','u','i','o','p'],['a','s','d','f','g','h','j','k','l'],['shift','z','x','c','v','b','n','m','del']];
+  const k=$('kbd');
+  for(const row of rows){
+    const r=el('div','krow');
+    for(const key of row){
+      const wide=key.length>1;
+      r.appendChild(el('div','key'+(wide?' wide':''),wide?(key==='shift'?'&#8679;':'&#9003;'):key));
+    }
+    k.appendChild(r);
+  }
+  const last=el('div','krow');
+  last.appendChild(el('div','key wide','123'));
+  last.appendChild(el('div','key space','&nbsp;'));
+  last.appendChild(el('div','key ret','send'));
+  k.appendChild(last);
+  last.lastChild.addEventListener('click',sendFromKbd);
+})();
+$('kbdSend').addEventListener('click',sendFromKbd);
+function sendFromKbd(){
+  CHAT.push({a:'you',tm:'21:47',t:'omw, keep theo alive till i get there'});
+  buildMsgs($('chatMsgs'),CHAT);
+  setKbd(false);
+  scrollChat('bottom');
+}
+function setKbd(on){
+  state.kbd=on;
+  $('kbdLayer').hidden=!on;
+  $('chatComposer').style.visibility=on?'hidden':'';
+  if(on)requestAnimationFrame(()=>{
+    // park the last message just above the keyboard; the hearth and mic
+    // end up underneath it — the keyboard covers the mic, as intended
+    const sc=$('chatScroll'),oh=$('kbdLayer').offsetHeight;
+    sc.scrollTop=Math.max(0,$('chatComposer').offsetTop-(sc.clientHeight-oh));
+  });
+}
+$('chatComposer').addEventListener('click',()=>{if(state.view==='chat')setKbd(true)});
+$('chatScroll').addEventListener('click',e=>{
+  if(state.kbd&&!e.target.closest('.composer'))setKbd(false);
+});
+
+/* ============================ scrolling ============================ */
+function scrollChat(mode){
+  const sc=$('chatScroll');
+  requestAnimationFrame(()=>{
+    if(mode==='bottom')sc.scrollTop=sc.scrollHeight;
+    else sc.scrollTop=Math.max(0,sc.scrollHeight-sc.clientHeight-560);
+  });
+}
+$('chatScroll').addEventListener('scroll',()=>{
+  const sc=$('chatScroll');
+  const fromBottom=sc.scrollHeight-sc.clientHeight-sc.scrollTop;
+  $('jumpChip').hidden=!(state.view==='chat'&&!state.kbd&&fromBottom>260);
+});
+$('jumpChip').addEventListener('click',()=>{
+  $('chatScroll').scrollTo({top:$('chatScroll').scrollHeight,behavior:'smooth'});
+});
+
+/* ============================ video canvas ============================ */
+const canvas=document.createElement('canvas');
+canvas.width=780;canvas.height=480;
+const ctx=canvas.getContext('2d');
+let videoOn=false;
+function ridge(t,base,amp,speed,phase){
+  ctx.beginPath();ctx.moveTo(0,480);
+  for(let x=0;x<=780;x+=8){
+    const y=base+Math.sin(x*.011+t*speed+phase)*amp+Math.sin(x*.031+t*speed*1.7+phase*2)*amp*.4;
+    ctx.lineTo(x,y);
+  }
+  ctx.lineTo(780,480);ctx.closePath();ctx.fill();
+}
+const motes=Array.from({length:26},(_,i)=>({x:Math.random()*780,y:Math.random()*480,s:.3+Math.random()*1.2,r:.8+Math.random()*1.6}));
+function drawGame(t){
+  const g=ctx.createLinearGradient(0,0,0,480);
+  g.addColorStop(0,'#0b1118');g.addColorStop(.6,'#0e1620');g.addColorStop(1,'#050a10');
+  ctx.fillStyle=g;ctx.fillRect(0,0,780,480);
+  ctx.fillStyle='#0c141c';ridge(t,250,34,.20,0);
+  ctx.fillStyle='#091019';ridge(t,320,44,.42,2);
+  ctx.fillStyle='#060b12';ridge(t,395,36,.75,4);
+  for(const m of motes){
+    m.y-=m.s;if(m.y<-4){m.y=486;m.x=Math.random()*780}
+    ctx.fillStyle='rgba(190,215,235,.5)';
+    ctx.beginPath();ctx.arc(m.x+Math.sin(t+m.x)*6,m.y,m.r,0,7);ctx.fill();
+  }
+  const kx=390+Math.sin(t*.9)*30,ky=330+Math.sin(t*2.1)*8;
+  ctx.fillStyle='rgba(225,240,250,.95)';
+  ctx.beginPath();ctx.ellipse(kx,ky,9,12,0,0,7);ctx.fill();
+  ctx.fillStyle='#0e1620';
+  ctx.beginPath();ctx.ellipse(kx-3,ky-3,1.8,2.6,0,0,7);ctx.fill();
+  ctx.beginPath();ctx.ellipse(kx+3,ky-3,1.8,2.6,0,0,7);ctx.fill();
+  ctx.beginPath();ctx.arc(kx,ky,17+Math.sin(t*3)*2,0,7);
+  ctx.strokeStyle='rgba(190,220,240,.18)';ctx.lineWidth=3;ctx.stroke();
+  for(let i=0;i<5;i++){
+    ctx.beginPath();ctx.arc(30+i*26,32,9,0,7);
+    ctx.fillStyle=i<1?'rgba(235,245,250,.92)':'rgba(235,245,250,.16)';
+    ctx.fill();
+  }
+  const v=ctx.createRadialGradient(390,240,140,390,240,470);
+  v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(1,'rgba(0,0,0,.55)');
+  ctx.fillStyle=v;ctx.fillRect(0,0,780,480);
+}
+function loop(ts){
+  if(videoOn)drawGame(ts/1000);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+canvas.style.cssText='position:absolute;inset:0;width:100%;height:100%;';
+
+/* ============================ QR ============================ */
+function drawQR(cv,seed){
+  const n=29,c=cv.getContext('2d');
+  let s=seed;const rnd=()=>{s=(s*1103515245+12345)&0x7fffffff;return s/0x7fffffff};
+  c.fillStyle='#f2e4c9';c.fillRect(0,0,n,n);
+  c.fillStyle='#2c1d10';
+  const finder=(x,y)=>{
+    c.fillRect(x,y,7,7);c.fillStyle='#f2e4c9';c.fillRect(x+1,y+1,5,5);
+    c.fillStyle='#2c1d10';c.fillRect(x+2,y+2,3,3);
+  };
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){
+    const inF=(x<8&&y<8)||(x>=n-8&&y<8)||(x<8&&y>=n-8);
+    if(inF)continue;
+    if(y===6||x===6){if((x+y)%2===0)c.fillRect(x,y,1,1);continue}
+    if(rnd()<.44)c.fillRect(x,y,1,1);
+  }
+  finder(0,0);finder(n-7,0);finder(0,n-7);
+  c.fillRect(n-9,n-9,5,5);c.fillStyle='#f2e4c9';c.fillRect(n-8,n-8,3,3);
+  c.fillStyle='#2c1d10';c.fillRect(n-7,n-7,1,1);
+}
+drawQR($('qrCanvas'),421);
+drawQR($('qrCanvasScan'),421);
+
+let burnTimer=null,scanTimer=null;
+function startBurn(){
+  stopBurn();
+  let left=90;
+  const tick=()=>{
+    left--;
+    if(left<0){left=90;drawQR($('qrCanvas'),(Math.random()*9999)|0)}
+    $('burnClock').textContent=Math.floor(left/60)+':'+String(left%60).padStart(2,'0');
+    $('burnFill').style.width=(left/90*100)+'%';
+  };
+  tick();burnTimer=setInterval(tick,1000);
+}
+function stopBurn(){if(burnTimer){clearInterval(burnTimer);burnTimer=null}}
+function startScan(){
+  stopScan();
+  $('qrScan').classList.remove('found');
+  scanTimer=setTimeout(()=>$('qrScan').classList.add('found'),2400);
+}
+function stopScan(){if(scanTimer){clearTimeout(scanTimer);scanTimer=null}}
+
+/* ============================ overlays ============================ */
+function openOverlay(name){
+  if(name==='members'){renderMembers();$('membersSheet').hidden=false}
+  if(name==='profile')$('profileSheet').hidden=false;
+  if(name==='drawer')$('drawer').hidden=false;
+}
+function closeOverlays(){
+  $('drawer').hidden=true;$('membersSheet').hidden=true;$('profileSheet').hidden=true;
+}
+$('btnDrawer').addEventListener('click',()=>openOverlay('drawer'));
+$('btnTitle').addEventListener('click',()=>{if(state.view==='chat'||state.view==='dm')openOverlay('members')});
+document.addEventListener('click',e=>{
+  const c=e.target.closest('[data-close]');
+  if(c){
+    const k=c.dataset.close;
+    if(k==='drawer')$('drawer').hidden=true;
+    else if(k==='members')$('membersSheet').hidden=true;
+    else if(k==='profile')$('profileSheet').hidden=true;
+    else if(k==='qrshow'||k==='qrscan')go('chat');
+  }
+  const o=e.target.closest('[data-open]');
+  if(o)openOverlay(o.dataset.open);
+  const g=e.target.closest('[data-go]');
+  if(g){closeOverlays();go(g.dataset.go)}
+});
+
+/* ============================ view routing ============================ */
+function go(view){
+  state.view=view;
+  render();
+}
+function render(){
+  const v=state.view;
+  $('chatScroll').hidden=!(v==='chat');
+  $('dmScroll').hidden=!(v==='dm');
+  $('videoView').hidden=!(v==='video');
+  $('qrShow').hidden=!(v==='qrshow');
+  $('qrScan').hidden=!(v==='qrscan');
+  $('topbar').style.visibility=(v==='qrshow'||v==='qrscan')?'hidden':'';
+  // pip only makes sense over the chat
+  const pipOn=state.pip&&v==='chat';
+  $('pip').hidden=!pipOn;
+  // canvas parenting
+  videoOn=(v==='video')||pipOn;
+  if(v==='video'){$('videoStage').appendChild(canvas)}
+  else if(pipOn){$('pipStage').appendChild(canvas)}
+  if(v!=='chat'&&state.kbd)setKbd(false);
+  if(v!=='chat')$('jumpChip').hidden=true;
+  // qr lifecycles
+  if(v==='qrshow')startBurn();else stopBurn();
+  if(v==='qrscan')startScan();else stopScan();
+  renderTopbar();
+  if(v==='chat'){
+    if(state.kbd)setKbd(true);
+    else scrollChat(state.scrollMode);
+  }
+  if(v==='dm')requestAnimationFrame(()=>{$('dmScroll').scrollTop=$('dmScroll').scrollHeight});
+}
+$('btnPip').addEventListener('click',()=>{state.pip=true;state.scrollMode='bottom';go('chat')});
+$('btnCloseVideo').addEventListener('click',()=>{state.pip=false;go('chat')});
+$('pip').addEventListener('click',e=>{
+  if(e.target.closest('.pipX')){state.pip=false;render();return}
+  go('video');
+});
+
+/* ============================ scenarios ============================ */
+const SCENARIOS=[
+  {t:'the room, mic at the bottom',f(){state.call=callPreset('two');state.view='chat';state.pip=false;state.kbd=false;state.scrollMode='bottom'}},
+  {t:'scrolled up — mic gone',f(){state.call=callPreset('two');state.view='chat';state.pip=false;state.kbd=false;state.scrollMode='up'}},
+  {t:'writing — keyboard over the mic',f(){state.call=callPreset('two');state.view='chat';state.pip=false;state.kbd=true;state.scrollMode='bottom'}},
+  {t:'the fire is out',f(){state.call=callPreset('empty');state.view='chat';state.pip=false;state.kbd=false;state.scrollMode='bottom'}},
+  {t:'three at the hearth, jonas talking',f(){state.call=callPreset('three');state.view='chat';state.pip=false;state.kbd=false;state.scrollMode='bottom'}},
+  {t:'you, seated and muted',f(){state.call=callPreset('selfmuted');state.view='chat';state.pip=false;state.kbd=false;state.scrollMode='bottom'}},
+  {t:'theo’s screen, full',f(){state.call=callPreset('three');state.view='video';state.pip=false;state.kbd=false}},
+  {t:'theo tucked in the corner',f(){state.call=callPreset('three');state.view='chat';state.pip=true;state.kbd=false;state.scrollMode='bottom'}},
+  {t:'sealed room with marta',f(){state.view='dm';state.pip=false;state.kbd=false}},
+  {t:'login — the device that shows',f(){state.view='qrshow';state.pip=false;state.kbd=false}},
+  {t:'login — the device that scans',f(){state.view='qrscan';state.pip=false;state.kbd=false}}
+];
+const swList=$('swList');
+SCENARIOS.forEach((s,i)=>{
+  const b=el('button','swBtn','<span class="n">'+(i+1)+'</span>'+s.t);
+  b.addEventListener('click',()=>{
+    closeOverlays();
+    document.querySelectorAll('.swBtn').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    s.f();renderHearth();render();
+  });
+  swList.appendChild(b);
+});
+
+/* ============================ boot ============================ */
+buildMsgs($('chatMsgs'),CHAT);
+buildMsgs($('dmMsgs'),DM);
+state.call=callPreset('two');
+renderHearth();
+render();
+document.querySelector('.swBtn').classList.add('on');
+</script>
+</body>
+</html>

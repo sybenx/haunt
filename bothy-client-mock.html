@@ -1,0 +1,1185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bothy</title>
+<style>
+/* ————————————————————————————————————————————————
+   BOTHY · a room for your people
+   Single committed theme: an evening interior.
+   peat ground · wool ink · ember light · moss presence
+———————————————————————————————————————————————— */
+:root{
+  --peat:      #201a15;   /* page ground        */
+  --peat-deep: #17120e;   /* recesses           */
+  --wall:      #2b231b;   /* raised panels      */
+  --wall-hi:   #362c21;   /* panel highlights   */
+  --ink:       #efe6d7;   /* wool cream text    */
+  --ink-dim:   #a2917a;   /* faded text         */
+  --ink-faint: #6e6152;
+  --ember:     #e79c3c;   /* firelight          */
+  --ember-hot: #f4b96a;
+  --ember-deep:#b45f1d;
+  --moss:      #9db289;   /* online presence    */
+  --line:      rgba(239,230,215,.09);
+  --danger:    #c96b52;
+
+  --serif: "Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+  --sans:  system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:  ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+
+  /* member hues (warm, from the same room) */
+  --hue-clay:#c4694a; --hue-heather:#a17bb5; --hue-moss:#7ba05f;
+  --hue-gorse:#d9a832; --hue-loch:#6b93b8; --hue-rust:#b8543a;
+  --hue-bramble:#b06a8a; --hue-slate:#8b8fa3;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--peat);
+  color:var(--ink);
+  font-family:var(--sans);
+  font-size:15px;
+  line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input{font:inherit;color:inherit}
+svg{display:block}
+[hidden]{display:none!important}
+
+/* ————— app frame ————— */
+#app{
+  height:100dvh;
+  display:grid;
+  grid-template-columns:1fr;
+  overflow:hidden;
+}
+@media (min-width:960px){
+  #app.chat-open-wide{grid-template-columns:1fr 340px}
+}
+
+.room-col{
+  display:flex;flex-direction:column;
+  height:100dvh;
+  max-width:600px;width:100%;
+  margin:0 auto;
+  padding:0 18px calc(14px + env(safe-area-inset-bottom));
+  overflow:hidden;
+}
+
+/* ————— header ————— */
+header.roomhead{
+  display:flex;align-items:center;gap:12px;
+  padding:16px 2px 10px;
+  flex:none;
+}
+.roomname{min-width:0}
+.roomname h1{
+  font-family:var(--serif);
+  font-weight:600;font-size:22px;letter-spacing:.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.roomname .sub{
+  font-family:var(--mono);font-size:11px;color:var(--ink-faint);
+  margin-top:1px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.headbtns{margin-left:auto;display:flex;align-items:center;gap:10px;flex:none}
+.chatbtn{
+  position:relative;
+  width:40px;height:40px;border-radius:12px;
+  display:grid;place-items:center;
+  color:var(--ink-dim);
+  border:1px solid var(--line);
+  background:var(--wall);
+  transition:color .15s,border-color .15s;
+}
+.chatbtn:hover{color:var(--ink)}
+.chatbtn .unread{
+  position:absolute;top:-4px;right:-4px;
+  min-width:17px;height:17px;padding:0 4px;
+  border-radius:9px;
+  background:var(--ember);color:#241a0e;
+  font-size:11px;font-weight:700;line-height:17px;text-align:center;
+  border:2px solid var(--peat);
+}
+.mebtn{
+  width:40px;height:40px;border-radius:50%;
+  display:grid;place-items:center;
+  font-weight:700;font-size:15px;color:#fff8ef;
+  border:2px solid var(--line);
+  flex:none;
+}
+.mebtn:hover{border-color:var(--ink-dim)}
+
+/* ————— key banner (first run) ————— */
+.keybanner{
+  flex:none;
+  display:flex;align-items:center;gap:10px;
+  background:linear-gradient(180deg,var(--wall-hi),var(--wall));
+  border:1px solid rgba(231,156,60,.25);
+  border-radius:12px;
+  padding:9px 12px;
+  margin-bottom:10px;
+  font-size:13px;color:var(--ink-dim);
+}
+.keybanner b{color:var(--ink);font-weight:600}
+.keybanner .go{
+  color:var(--ember);font-weight:600;white-space:nowrap;
+  padding:4px 8px;border-radius:8px;
+}
+.keybanner .go:hover{background:rgba(231,156,60,.12)}
+.keybanner .x{color:var(--ink-faint);padding:4px 6px;font-size:15px;line-height:1}
+.keybanner .x:hover{color:var(--ink)}
+
+/* ————— the hearth (who is in the call) ————— */
+.hearth{
+  flex:1 1 auto;
+  min-height:0;
+  border-radius:20px;
+  border:1px solid var(--line);
+  background:var(--peat-deep);
+  position:relative;
+  overflow:hidden;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:18px 16px 26px;
+  transition:border-color .5s;
+}
+.hearth::after{ /* firelight from below when the call is live */
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(90% 75% at 50% 108%,rgba(231,140,44,.34),rgba(231,140,44,.10) 45%,transparent 72%);
+  opacity:0;transition:opacity .8s;
+}
+.hearth.lit{border-color:rgba(231,156,60,.28)}
+.hearth.lit::after{opacity:1}
+
+.hearth .quiet{
+  position:relative;z-index:1;text-align:center;color:var(--ink-faint);
+  display:flex;flex-direction:column;align-items:center;gap:12px;
+}
+.hearth .quiet .embers{display:flex;gap:7px}
+.hearth .quiet .embers i{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--ink-faint);opacity:.45;
+}
+.hearth .quiet p{font-family:var(--serif);font-size:16px;font-style:italic;color:var(--ink-dim)}
+.hearth .quiet small{font-size:12.5px;color:var(--ink-faint)}
+
+.hearth .sitters{
+  position:relative;z-index:1;
+  display:flex;flex-wrap:wrap;justify-content:center;
+  gap:22px 26px;
+  max-width:420px;
+}
+.sitter{display:flex;flex-direction:column;align-items:center;gap:8px;width:84px}
+.sitter .face{
+  position:relative;
+  width:72px;height:72px;border-radius:50%;
+  display:grid;place-items:center;
+  font-family:var(--serif);font-size:27px;font-weight:600;color:#fff8ef;
+  box-shadow:0 4px 14px rgba(0,0,0,.4);
+}
+.sitter .face::before,.sitter .face::after{ /* speaking rings */
+  content:"";position:absolute;inset:-6px;border-radius:50%;
+  border:2px solid var(--ember);opacity:0;
+}
+.sitter.talking .face::before{opacity:.9;animation:ring 1.6s ease-out infinite}
+.sitter.talking .face::after{opacity:.9;animation:ring 1.6s .5s ease-out infinite}
+@keyframes ring{
+  0%{transform:scale(.92);opacity:.85}
+  100%{transform:scale(1.28);opacity:0}
+}
+.sitter .who{
+  font-size:13px;font-weight:600;color:var(--ink);
+  display:flex;align-items:center;gap:5px;
+  max-width:100%;
+}
+.sitter .who .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sitter.talking .who{color:var(--ember-hot)}
+.sitter .mutebadge{
+  position:absolute;right:-2px;bottom:-2px;
+  width:24px;height:24px;border-radius:50%;
+  background:var(--peat);border:1.5px solid var(--line);
+  display:grid;place-items:center;color:var(--ink-dim);
+}
+.sitter.is-you .face{outline:2px solid rgba(239,230,215,.35);outline-offset:2px}
+.sitter .youtag{font-size:10.5px;color:var(--ink-faint);letter-spacing:.06em;text-transform:uppercase}
+/* little voice bars beside the talking name */
+.bars{display:inline-flex;align-items:flex-end;gap:2px;height:11px}
+.bars i{width:3px;border-radius:2px;background:var(--ember-hot);height:4px}
+.bars i:nth-child(1){animation:bar 0.9s ease-in-out infinite}
+.bars i:nth-child(2){animation:bar 0.9s .2s ease-in-out infinite}
+.bars i:nth-child(3){animation:bar 0.9s .4s ease-in-out infinite}
+@keyframes bar{0%,100%{height:4px}50%{height:11px}}
+
+/* ————— roster: everyone in the group ————— */
+.roster{
+  flex:none;
+  display:flex;gap:4px;
+  padding:12px 4px 4px;
+  overflow-x:auto;
+  scrollbar-width:none;
+}
+.roster::-webkit-scrollbar{display:none}
+.folk{
+  flex:none;width:56px;
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+}
+.folk .dot{
+  position:relative;
+  width:38px;height:38px;border-radius:50%;
+  display:grid;place-items:center;
+  font-size:15px;font-weight:700;color:#fff8ef;
+}
+.folk .nm{font-size:11px;color:var(--ink-dim);max-width:100%;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.folk .dot::after{ /* presence */
+  content:"";position:absolute;right:0;bottom:0;
+  width:10px;height:10px;border-radius:50%;
+  background:var(--moss);border:2px solid var(--peat);
+}
+.folk.away .dot{filter:grayscale(1) brightness(.75);opacity:.4}
+.folk.away .dot::after{display:none}
+.folk.away .nm{color:var(--ink-faint)}
+.folk.atfire .dot::after{background:var(--ember);box-shadow:0 0 8px rgba(231,156,60,.8)}
+
+/* ————— the mic ————— */
+.micdock{
+  flex:none;
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+  padding:16px 0 4px;
+}
+.micbtn{
+  --d:min(52vw,218px);
+  width:var(--d);height:var(--d);
+  border-radius:50%;
+  position:relative;
+  display:grid;place-items:center;
+  color:var(--ink);
+  background:
+    radial-gradient(120% 120% at 32% 24%,var(--wall-hi) 0%,var(--wall) 42%,#221a12 100%);
+  border:1px solid rgba(239,230,215,.13);
+  box-shadow:
+    0 14px 30px rgba(0,0,0,.55),
+    0 3px 8px rgba(0,0,0,.5),
+    inset 0 2px 2px rgba(255,244,224,.10),
+    inset 0 -10px 22px rgba(0,0,0,.38);
+  transition:transform .12s,box-shadow .25s,background .35s,border-color .35s;
+  -webkit-tap-highlight-color:transparent;
+}
+.micbtn:active{transform:translateY(3px)}
+.micbtn .glyph{width:56px;height:56px;color:var(--ink-dim);transition:color .3s}
+.micbtn .biglabel{
+  font-family:var(--serif);font-size:17px;letter-spacing:.01em;
+  margin-top:6px;color:var(--ink);
+}
+.micbtn .inner{display:flex;flex-direction:column;align-items:center;position:relative;z-index:1}
+
+/* joining: waiting on the browser's mic permission */
+.micbtn.joining{transform:translateY(2px)}
+.micbtn.joining .glyph{color:var(--ember);animation:breathe 1.2s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:.55}50%{opacity:1}}
+
+/* in the call, mic open: pressed in, lit */
+.micbtn.live{
+  transform:translateY(4px);
+  background:
+    radial-gradient(120% 120% at 50% 82%,#4a3115 0%,#33240f 55%,#241a0e 100%);
+  border-color:rgba(231,156,60,.55);
+  box-shadow:
+    0 4px 12px rgba(0,0,0,.5),
+    0 0 46px rgba(231,140,44,.30),
+    inset 0 3px 10px rgba(0,0,0,.55),
+    inset 0 -2px 2px rgba(244,185,106,.16);
+}
+.micbtn.live .glyph{color:var(--ember-hot)}
+.micbtn.live .biglabel{color:var(--ember-hot)}
+.micbtn.live.metalking{box-shadow:
+  0 4px 12px rgba(0,0,0,.5),
+  0 0 70px rgba(231,140,44,.5),
+  inset 0 3px 10px rgba(0,0,0,.55),
+  inset 0 -2px 2px rgba(244,185,106,.2)}
+
+/* in the call, muted: pressed in, dim */
+.micbtn.muted{
+  transform:translateY(4px);
+  background:radial-gradient(120% 120% at 50% 80%,#2c241b 0%,#221b13 60%,#1c1610 100%);
+  border-color:rgba(239,230,215,.16);
+  box-shadow:
+    0 4px 12px rgba(0,0,0,.5),
+    inset 0 3px 10px rgba(0,0,0,.55);
+}
+.micbtn.muted .glyph{color:var(--ink-dim)}
+.micbtn.muted .biglabel{color:var(--ink-dim)}
+
+.michint{font-size:12.5px;color:var(--ink-faint);min-height:18px;text-align:center}
+.leavebtn{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:9px 18px;border-radius:999px;
+  border:1px solid var(--line);
+  color:var(--ink-dim);font-size:13.5px;font-weight:600;
+  background:rgba(0,0,0,.18);
+}
+.leavebtn:hover{color:var(--ink);border-color:var(--ink-faint)}
+
+/* ————— chat drawer ————— */
+.chatpane{
+  position:fixed;inset:0 0 0 auto;
+  width:min(92vw,340px);
+  background:var(--wall);
+  border-left:1px solid var(--line);
+  transform:translateX(102%);
+  transition:transform .28s cubic-bezier(.3,.9,.3,1);
+  display:flex;flex-direction:column;
+  z-index:40;
+  padding-bottom:env(safe-area-inset-bottom);
+}
+.chatpane.open{transform:none;box-shadow:-24px 0 60px rgba(0,0,0,.45)}
+@media (min-width:960px){
+  #app.chat-open-wide .chatpane{
+    position:static;transform:none;width:auto;box-shadow:none;height:100dvh;
+  }
+}
+.chathead{
+  flex:none;display:flex;align-items:center;gap:8px;
+  padding:16px 16px 12px;
+  border-bottom:1px solid var(--line);
+}
+.chathead h2{font-family:var(--serif);font-size:17px;font-weight:600}
+.chathead .closechat{margin-left:auto;color:var(--ink-faint);padding:4px 8px;font-size:18px;line-height:1}
+.chathead .closechat:hover{color:var(--ink)}
+.msgs{
+  flex:1;overflow-y:auto;
+  padding:14px 16px;
+  display:flex;flex-direction:column;gap:12px;
+}
+.daybreak{
+  text-align:center;font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-faint);margin:6px 0 0;
+  display:flex;align-items:center;gap:12px;
+}
+.daybreak::before,.daybreak::after{content:"";flex:1;height:1px;background:var(--line)}
+.msg{display:flex;gap:10px;align-items:flex-start}
+.msg .mdot{
+  flex:none;width:30px;height:30px;border-radius:50%;
+  display:grid;place-items:center;font-size:12.5px;font-weight:700;color:#fff8ef;
+  margin-top:2px;
+}
+.msg .mbody{min-width:0}
+.msg .mtop{display:flex;align-items:baseline;gap:8px}
+.msg .mname{font-size:13px;font-weight:700}
+.msg .mtime{font-size:11px;color:var(--ink-faint);font-variant-numeric:tabular-nums}
+.msg .mtext{font-size:14px;color:var(--ink);overflow-wrap:break-word}
+.msg.mine .mtext{color:var(--ink)}
+.chatfoot{
+  flex:none;display:flex;gap:8px;
+  padding:10px 12px 14px;
+  border-top:1px solid var(--line);
+}
+.chatfoot input{
+  flex:1;min-width:0;
+  background:var(--peat-deep);
+  border:1px solid var(--line);
+  border-radius:999px;
+  padding:10px 16px;font-size:14px;
+  outline:none;
+}
+.chatfoot input::placeholder{color:var(--ink-faint)}
+.chatfoot input:focus{border-color:var(--ink-faint)}
+.chatfoot .send{
+  flex:none;width:40px;height:40px;border-radius:50%;
+  display:grid;place-items:center;
+  background:var(--ember-deep);color:#fff4e2;
+}
+.chatfoot .send:hover{background:var(--ember)}
+
+/* ————— entry screens ————— */
+.entry{
+  position:fixed;inset:0;z-index:60;
+  background:
+    radial-gradient(120% 90% at 50% 118%,rgba(180,95,29,.20),transparent 60%),
+    var(--peat);
+  display:flex;align-items:center;justify-content:center;
+  padding:24px;
+  overflow-y:auto;
+}
+.entrycard{width:100%;max-width:390px;text-align:center;padding:24px 0}
+.entrycard .wordmark{
+  font-family:var(--serif);font-style:italic;font-size:15px;
+  letter-spacing:.22em;text-transform:lowercase;color:var(--ink-faint);
+  margin-bottom:34px;
+}
+.entrycard .doorlight{
+  width:66px;height:66px;margin:0 auto 26px;border-radius:50%;
+  background:radial-gradient(circle at 50% 42%,var(--ember-hot),var(--ember-deep) 68%,transparent 72%);
+  box-shadow:0 0 60px rgba(231,140,44,.45);
+  display:grid;place-items:center;color:#2b1a08;
+}
+.entrycard h1{
+  font-family:var(--serif);font-weight:600;font-size:30px;line-height:1.2;
+  text-wrap:balance;margin-bottom:12px;
+}
+.entrycard .place{
+  font-size:14px;color:var(--ink-dim);margin-bottom:6px;
+}
+.entrycard .place b{color:var(--ink);font-weight:600}
+.entrycard .relayaddr{
+  font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);
+  margin-bottom:30px;overflow-wrap:anywhere;
+}
+.entrycard label.fld{
+  display:block;text-align:left;
+  font-size:12px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink-faint);margin:0 0 6px 4px;
+}
+.entrycard input.big{
+  width:100%;
+  background:var(--peat-deep);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:14px 16px;
+  font-size:17px;text-align:center;
+  outline:none;color:var(--ink);
+}
+.entrycard input.big::placeholder{color:var(--ink-faint)}
+.entrycard input.big:focus{border-color:rgba(231,156,60,.5)}
+.entrycard input.mono{font-family:var(--mono);font-size:14px}
+.enterbtn{
+  width:100%;margin-top:14px;
+  padding:15px 20px;border-radius:14px;
+  background:linear-gradient(180deg,var(--ember),var(--ember-deep));
+  color:#2b1a08;font-size:17px;font-weight:700;
+  font-family:var(--serif);
+  box-shadow:0 6px 18px rgba(180,95,29,.35),inset 0 1px 1px rgba(255,240,214,.5);
+}
+.enterbtn:active{transform:translateY(2px)}
+.entrycard .keynote{
+  margin-top:18px;font-size:12.5px;color:var(--ink-faint);line-height:1.55;
+}
+.entrycard .altid{
+  margin-top:26px;font-size:13px;color:var(--ink-dim);
+}
+.entrycard .altid button{
+  color:var(--ember);font-weight:600;text-decoration:underline;
+  text-underline-offset:3px;text-decoration-color:rgba(231,156,60,.4);
+}
+.entrycard .altid button:hover{text-decoration-color:var(--ember)}
+.entrycard .knocknote{
+  margin-top:30px;font-size:12.5px;color:var(--ink-faint);line-height:1.6;
+}
+
+/* ————— sheets (profile / identity) ————— */
+.scrim{
+  position:fixed;inset:0;z-index:80;
+  background:rgba(12,9,6,.6);
+  backdrop-filter:blur(2px);
+  display:flex;align-items:flex-end;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity .2s;
+}
+.scrim.open{opacity:1;pointer-events:auto}
+@media (min-width:640px){.scrim{align-items:center}}
+.sheet{
+  width:100%;max-width:430px;
+  background:var(--wall);
+  border:1px solid var(--line);
+  border-radius:22px 22px 0 0;
+  padding:20px 22px calc(24px + env(safe-area-inset-bottom));
+  transform:translateY(24px);transition:transform .22s;
+  max-height:88dvh;overflow-y:auto;
+}
+@media (min-width:640px){.sheet{border-radius:22px;padding-bottom:24px}}
+.scrim.open .sheet{transform:none}
+.sheet .shead{display:flex;align-items:center;margin-bottom:16px}
+.sheet h2{font-family:var(--serif);font-size:20px;font-weight:600}
+.sheet .closex{margin-left:auto;color:var(--ink-faint);font-size:20px;line-height:1;padding:4px 8px}
+.sheet .closex:hover{color:var(--ink)}
+.sheet .sect{margin-top:20px}
+.sheet .sect > .lbl{
+  font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-faint);margin-bottom:8px;
+}
+.sheet input.namefld{
+  width:100%;background:var(--peat-deep);
+  border:1px solid var(--line);border-radius:12px;
+  padding:11px 14px;font-size:16px;outline:none;
+}
+.sheet input.namefld:focus{border-color:rgba(231,156,60,.5)}
+.swatches{display:flex;gap:10px;flex-wrap:wrap}
+.swatches button{
+  width:34px;height:34px;border-radius:50%;
+  border:2px solid transparent;
+}
+.swatches button.sel{border-color:var(--ink);box-shadow:0 0 0 3px var(--wall),0 0 0 4px var(--ink-faint)}
+.keycard{
+  background:var(--peat-deep);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:14px 15px;
+}
+.keycard .npub{
+  font-family:var(--mono);font-size:12px;color:var(--ink-dim);
+  overflow-wrap:anywhere;line-height:1.6;
+}
+.keycard .keyrow{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.pill{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:8px 14px;border-radius:999px;
+  border:1px solid var(--line);
+  font-size:13px;font-weight:600;color:var(--ink);
+  background:var(--wall);
+}
+.pill:hover{border-color:var(--ink-faint)}
+.pill.warm{background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#2b1a08;border:none}
+.pill.warm:hover{filter:brightness(1.06)}
+.keyexplain{font-size:12.5px;color:var(--ink-faint);line-height:1.55;margin-top:10px}
+.forget{margin-top:22px;font-size:13px;color:var(--danger);opacity:.85}
+.forget:hover{opacity:1;text-decoration:underline;text-underline-offset:3px}
+
+/* identity options */
+.idopt{
+  width:100%;text-align:left;
+  display:flex;gap:13px;align-items:flex-start;
+  background:var(--peat-deep);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:14px 15px;
+  margin-bottom:10px;
+  transition:border-color .15s;
+}
+.idopt:hover{border-color:rgba(231,156,60,.45)}
+.idopt .ico{
+  flex:none;width:38px;height:38px;border-radius:11px;
+  background:var(--wall-hi);display:grid;place-items:center;color:var(--ember);
+}
+.idopt .t{font-size:14.5px;font-weight:700}
+.idopt .d{font-size:12.5px;color:var(--ink-dim);line-height:1.5;margin-top:2px}
+.idnote{
+  margin-top:14px;padding:11px 13px;border-radius:12px;
+  background:rgba(201,107,82,.09);
+  border:1px solid rgba(201,107,82,.25);
+  font-size:12.5px;color:var(--ink-dim);line-height:1.55;
+}
+.idnote b{color:var(--ink)}
+
+/* ————— toast ————— */
+#toast{
+  position:fixed;left:50%;bottom:calc(26px + env(safe-area-inset-bottom));
+  transform:translate(-50%,16px);
+  background:var(--wall-hi);
+  border:1px solid var(--line);
+  color:var(--ink);
+  border-radius:12px;
+  padding:10px 16px;font-size:13.5px;
+  box-shadow:0 10px 30px rgba(0,0,0,.5);
+  opacity:0;pointer-events:none;
+  transition:opacity .25s,transform .25s;
+  z-index:120;max-width:88vw;text-align:center;
+}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* ————— mock switchboard (not part of the design) ————— */
+#mock{
+  position:fixed;left:12px;bottom:calc(12px + env(safe-area-inset-bottom));
+  z-index:100;
+  font-family:var(--mono);font-size:11px;
+}
+#mock .tab{
+  background:#0d0b09;color:#8a8a8a;
+  border:1px dashed #4a4438;
+  border-radius:8px;padding:5px 10px;
+}
+#mock .panel{
+  position:absolute;left:0;bottom:34px;
+  width:210px;
+  background:#0d0b09;
+  border:1px dashed #4a4438;
+  border-radius:10px;
+  padding:10px 11px;
+  color:#8a8a8a;
+}
+#mock .grp{margin-bottom:9px}
+#mock .grp:last-child{margin-bottom:0}
+#mock .glbl{color:#5c564a;margin-bottom:4px;letter-spacing:.06em}
+#mock .panel button{
+  display:block;width:100%;text-align:left;
+  color:#a8a294;padding:4px 7px;border-radius:6px;
+  font-family:inherit;font-size:11px;
+}
+#mock .panel button:hover{background:#1c1813}
+#mock .panel button.on{color:#e79c3c;background:#1c1610}
+
+@media (prefers-reduced-motion:reduce){
+  .sitter.talking .face::before,.sitter.talking .face::after,
+  .bars i,.micbtn.joining .glyph{animation:none}
+  .sitter.talking .face::before{opacity:.9;transform:scale(1.06)}
+}
+@media (max-height:660px){
+  .micbtn{--d:min(44vw,168px)}
+  .micbtn .glyph{width:44px;height:44px}
+  .sitter .face{width:60px;height:60px;font-size:23px}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ THE ROOM ═══════════════ -->
+<div id="app">
+  <div class="room-col">
+    <header class="roomhead">
+      <div class="roomname">
+        <h1 id="roomTitle">The Fell House</h1>
+        <div class="sub" id="roomSub">relay.fell.house · 8 of us</div>
+      </div>
+      <div class="headbtns">
+        <button class="chatbtn" id="chatToggle" aria-label="Open chat">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a8 8 0 0 1-8 8H5.6L3 21.4V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/>
+          </svg>
+          <span class="unread" id="unreadBadge" hidden>2</span>
+        </button>
+        <button class="mebtn" id="profileBtn" aria-label="Your profile">J</button>
+      </div>
+    </header>
+
+    <div class="keybanner" id="keyBanner" hidden>
+      <span style="color:var(--ember);display:grid;place-items:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 21 2"/><path d="M17 6l3 3"/><path d="M14 9l2 2"/></svg></span>
+      <span style="flex:1;min-width:0">A <b>key was cut for you</b> and lives on this device. It's your only way back in.</span>
+      <button class="go" id="keyBannerGo">Keep a copy</button>
+      <button class="x" id="keyBannerX" aria-label="Dismiss">×</button>
+    </div>
+
+    <section class="hearth" id="hearth" aria-label="Voice call"></section>
+
+    <div class="roster" id="roster" aria-label="Everyone in the group"></div>
+
+    <div class="micdock">
+      <button class="micbtn" id="micBtn"></button>
+      <div class="michint" id="micHint"></div>
+      <button class="leavebtn" id="leaveBtn" hidden>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+        Step out
+      </button>
+    </div>
+  </div>
+
+  <!-- chat -->
+  <aside class="chatpane" id="chatPane" aria-label="Chat">
+    <div class="chathead">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--ink-dim)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H5.6L3 21.4V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/></svg>
+      <h2>The table</h2>
+      <button class="closechat" id="chatClose" aria-label="Close chat">×</button>
+    </div>
+    <div class="msgs" id="msgs"></div>
+    <div class="chatfoot">
+      <input id="chatInput" placeholder="Say something…" autocomplete="off">
+      <button class="send" id="chatSend" aria-label="Send">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
+      </button>
+    </div>
+  </aside>
+</div>
+
+<!-- ═══════════════ ENTRY: INVITED ═══════════════ -->
+<div class="entry" id="entryInvite" hidden>
+  <div class="entrycard">
+    <div class="wordmark">bothy</div>
+    <div class="doorlight">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+    </div>
+    <h1>Ailsa left the door open for&nbsp;you.</h1>
+    <p class="place">You're at the step of <b>The Fell House</b> — a private room for the people in it, and nobody else.</p>
+    <div class="relayaddr">wss://relay.fell.house</div>
+    <form id="inviteForm">
+      <label class="fld" for="inviteName">What should we call you?</label>
+      <input class="big" id="inviteName" placeholder="Your name" maxlength="24" autocomplete="off">
+      <button class="enterbtn" type="submit">Step inside</button>
+    </form>
+    <p class="keynote">No account, no email, no password. A key is cut for you the moment you step in, and it stays on this device.</p>
+    <p class="altid">Already have a nostr identity? <button id="bringIdBtn" type="button">Bring it with you</button></p>
+  </div>
+</div>
+
+<!-- ═══════════════ ENTRY: NO LINK (fallback) ═══════════════ -->
+<div class="entry" id="entryKnock" hidden>
+  <div class="entrycard">
+    <div class="wordmark">bothy</div>
+    <div class="doorlight" style="box-shadow:none;background:var(--wall-hi);color:var(--ink-dim)">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+    </div>
+    <h1>Whose place is this?</h1>
+    <p class="place" style="margin-bottom:26px">People usually arrive here by a link from a friend — one tap and you're in. If someone gave you an address instead, you can knock:</p>
+    <form id="knockForm">
+      <input class="big mono" id="knockRelay" placeholder="wss://relay.somebody.house" autocomplete="off" spellcheck="false">
+      <button class="enterbtn" type="submit">Knock</button>
+    </form>
+    <p class="knocknote">Nothing here is public. If you don't have an address, there's nothing to browse — ask the friend who told you about it to send you their link.</p>
+  </div>
+</div>
+
+<!-- ═══════════════ SHEET: PROFILE ═══════════════ -->
+<div class="scrim" id="profileScrim">
+  <div class="sheet" role="dialog" aria-label="Your profile">
+    <div class="shead"><h2>You, in this room</h2><button class="closex" data-close="profileScrim" aria-label="Close">×</button></div>
+    <div class="sect">
+      <div class="lbl">Name</div>
+      <input class="namefld" id="profileName" maxlength="24" autocomplete="off">
+    </div>
+    <div class="sect">
+      <div class="lbl">Colour</div>
+      <div class="swatches" id="swatches"></div>
+    </div>
+    <div class="sect">
+      <div class="lbl">Your house key</div>
+      <div class="keycard">
+        <div class="npub">npub1&hairsp;fe11h0use&hairsp;w4rmp1ace&hairsp;q2u8&hairsp;…&hairsp;7dnm&hairsp;kettle</div>
+        <div class="keyrow">
+          <button class="pill warm" id="saveKeyBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+            Save key file
+          </button>
+          <button class="pill" id="copyNpubBtn">Copy public name</button>
+        </div>
+        <p class="keyexplain">This key <em>is</em> your identity here — it was cut on this device and has never left it. Save the key file with your other important things; it's how you get in from a new phone. <b>Nobody will ever ask you to type or paste it into a website</b> — anyone who does is trying to rob you.</p>
+      </div>
+    </div>
+    <button class="forget" id="forgetBtn">Forget this device…</button>
+  </div>
+</div>
+
+<!-- ═══════════════ SHEET: BRING AN IDENTITY ═══════════════ -->
+<div class="scrim" id="identityScrim">
+  <div class="sheet" role="dialog" aria-label="Bring your identity">
+    <div class="shead"><h2>Bring your own key</h2><button class="closex" data-close="identityScrim" aria-label="Close">×</button></div>
+    <p style="font-size:13.5px;color:var(--ink-dim);line-height:1.55;margin-bottom:16px">If you already live on nostr somewhere else, come in as yourself.</p>
+    <button class="idopt" id="idExtBtn">
+      <span class="ico"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg></span>
+      <span><span class="t">Use your signer</span><br><span class="d">Alby, nos2x, or any NIP-07 extension. Your key stays inside it — Bothy only ever asks it to sign.</span></span>
+    </button>
+    <button class="idopt" id="idFileBtn">
+      <span class="ico"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+      <span><span class="t">Open a key file</span><br><span class="d">The file Bothy (or another app) gave you when your key was made. Picked from your device, read locally.</span></span>
+    </button>
+    <div class="idnote"><b>There's no box to paste a key into — on purpose.</b> Typing your private key into web pages is how keys get stolen. If Bothy ever seems to ask for one, close it and tell whoever runs your relay.</div>
+  </div>
+</div>
+
+<div id="toast" role="status"></div>
+
+<!-- mock switchboard — not part of the design -->
+<div id="mock">
+  <div class="panel" id="mockPanel">
+    <div class="grp">
+      <div class="glbl">ARRIVE AS…</div>
+      <button data-arrive="invite">new — invite link (?relay&amp;code)</button>
+      <button data-arrive="member">member — link (?relay)</button>
+      <button data-arrive="knock">nobody — no link at all</button>
+    </div>
+    <div class="grp">
+      <div class="glbl">THE CALL</div>
+      <button data-call="quiet">quiet — nobody on</button>
+      <button data-call="trio">three on, one talking</button>
+      <button data-call="you-muted">you're on, muted</button>
+      <button data-call="you-live">you're on, mic open</button>
+    </div>
+  </div>
+  <button class="tab" id="mockTab">mock states ▴</button>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════
+   BOTHY mock — all state is fake, no network.
+═══════════════════════════════════════════════ */
+(function(){
+"use strict";
+const $ = id => document.getElementById(id);
+
+/* ————— mock data ————— */
+const HUES = {
+  clay:"#c4694a", heather:"#a17bb5", moss:"#7ba05f", gorse:"#d9a832",
+  loch:"#6b93b8", rust:"#b8543a", bramble:"#b06a8a", slate:"#8b8fa3"
+};
+const state = {
+  screen: "room",            // room | invite | knock
+  you: { name:"Jamie", hue:"clay", inCall:false, muted:false, firstRun:false },
+  callScenario: "trio",      // quiet | trio  (+ you.inCall/you.muted)
+  joining:false,
+  talker:null,               // id of whoever is talking right now
+  chatOpen:false,
+  unread:2,
+  members: [
+    { id:"ailsa",  name:"Ailsa",  hue:"heather", online:true,  inCall:true,  muted:false },
+    { id:"struan", name:"Struan", hue:"loch",    online:true,  inCall:true,  muted:true  },
+    { id:"marta",  name:"Marta",  hue:"gorse",   online:true,  inCall:true,  muted:false },
+    { id:"dougie", name:"Dougie", hue:"moss",    online:true,  inCall:false, muted:false },
+    { id:"nan",    name:"Nan",    hue:"bramble", online:true,  inCall:false, muted:false },
+    { id:"effie",  name:"Effie",  hue:"rust",    online:false, inCall:false, muted:false },
+    { id:"callum", name:"Callum", hue:"slate",   online:false, inCall:false, muted:false }
+  ],
+  chat: [
+    { day:"yesterday" },
+    { who:"dougie", time:"21:14", text:"left the gate unlatched again. wasn't me" },
+    { who:"ailsa",  time:"21:20", text:"it was you" },
+    { day:"today" },
+    { who:"marta",  time:"19:02", text:"anyone coming on at 8?" },
+    { who:"ailsa",  time:"19:05", text:"aye — lighting the fire now 🔥" }
+  ]
+};
+
+const initialOf = n => (n||"?").trim().charAt(0).toUpperCase();
+const hue = k => HUES[k] || HUES.clay;
+
+/* ————— svg bits ————— */
+const MIC_SVG = `<svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3.5"/><path d="M8.5 21.5h7"/></svg>`;
+const MIC_OFF_SVG = `<svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5v-.5a3 3 0 0 1 6 0v6a3 3 0 0 1-.5 1.66"/><path d="M9 9.5v2a3 3 0 0 0 4.6 2.54"/><path d="M5.5 11.5a6.5 6.5 0 0 0 10.2 5.34"/><path d="M18.5 11.5a6.4 6.4 0 0 1-.44 2.34"/><path d="M12 18v3.5"/><path d="M8.5 21.5h7"/><path d="M4 4l16 16"/></svg>`;
+const MUTE_BADGE = `<span class="mutebadge"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9.5v2a3 3 0 0 0 4.6 2.54"/><path d="M9 5.5v-.5a3 3 0 0 1 6 0v6"/><path d="M4 4l16 16"/></svg></span>`;
+const BARS = `<span class="bars" aria-hidden="true"><i></i><i></i><i></i></span>`;
+
+/* ————— toast ————— */
+let toastT;
+function toast(msg){
+  const t = $("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastT);
+  toastT = setTimeout(()=>t.classList.remove("show"), 2600);
+}
+
+/* ————— who's in the call right now ————— */
+function callers(){
+  const list = state.callScenario === "trio" ? state.members.filter(m=>m.inCall) : [];
+  return list;
+}
+
+/* ————— render: hearth ————— */
+function renderHearth(){
+  const h = $("hearth");
+  const inCall = callers();
+  const meIn = state.you.inCall;
+  const lit = inCall.length > 0 || meIn;
+  h.classList.toggle("lit", lit);
+
+  if(!lit){
+    h.innerHTML = `
+      <div class="quiet">
+        <div class="embers"><i></i><i></i><i></i></div>
+        <p>The fire's not lit.</p>
+        <small>Sit down and someone will hear the chair creak.</small>
+      </div>`;
+    return;
+  }
+  let html = `<div class="sitters">`;
+  for(const m of inCall){
+    const talking = state.talker === m.id && !m.muted;
+    html += `
+      <div class="sitter${talking?" talking":""}">
+        <div class="face" style="background:${hue(m.hue)}">${initialOf(m.name)}${m.muted?MUTE_BADGE:""}</div>
+        <div class="who"><span class="nm">${m.name}</span>${talking?BARS:""}</div>
+      </div>`;
+  }
+  if(meIn){
+    const talking = state.talker === "you" && !state.you.muted;
+    html += `
+      <div class="sitter is-you${talking?" talking":""}">
+        <div class="face" style="background:${hue(state.you.hue)}">${initialOf(state.you.name)}${state.you.muted?MUTE_BADGE:""}</div>
+        <div class="who"><span class="nm">${state.you.name}</span>${talking?BARS:""}</div>
+        <div class="youtag">you</div>
+      </div>`;
+  }
+  html += `</div>`;
+  h.innerHTML = html;
+}
+
+/* ————— render: roster (the whole group) ————— */
+function renderRoster(){
+  const r = $("roster");
+  const inCallIds = new Set(callers().map(m=>m.id));
+  let html = "";
+  // you first
+  html += folkHTML(state.you.name, state.you.hue, true, state.you.inCall, "you");
+  for(const m of state.members){
+    html += folkHTML(m.name, m.hue, m.online, inCallIds.has(m.id));
+  }
+  r.innerHTML = html;
+  const n = 1 + state.members.length;
+  $("roomSub").textContent = `relay.fell.house · ${n} of us`;
+}
+function folkHTML(name, hueKey, online, atFire, tag){
+  const cls = ["folk"];
+  if(!online) cls.push("away");
+  if(atFire) cls.push("atfire");
+  return `
+    <div class="${cls.join(" ")}" title="${name}${online?"":" — away"}">
+      <div class="dot" style="background:${hue(hueKey)}">${initialOf(name)}</div>
+      <div class="nm">${tag==="you"?"you":name}</div>
+    </div>`;
+}
+
+/* ————— render: mic ————— */
+function renderMic(){
+  const b = $("micBtn"), hint = $("micHint"), leave = $("leaveBtn");
+  b.classList.remove("live","muted","joining","metalking");
+  if(state.joining){
+    b.classList.add("joining");
+    b.innerHTML = `<span class="inner">${MIC_SVG}<span class="biglabel">One moment…</span></span>`;
+    hint.textContent = "Allow the microphone when your browser asks.";
+    leave.hidden = true;
+  } else if(state.you.inCall && !state.you.muted){
+    b.classList.add("live");
+    if(state.talker==="you") b.classList.add("metalking");
+    b.innerHTML = `<span class="inner">${MIC_SVG}<span class="biglabel">You're on</span></span>`;
+    hint.textContent = "Tap to mute";
+    leave.hidden = false;
+  } else if(state.you.inCall && state.you.muted){
+    b.classList.add("muted");
+    b.innerHTML = `<span class="inner">${MIC_OFF_SVG}<span class="biglabel">Muted</span></span>`;
+    hint.textContent = "Tap to speak";
+    leave.hidden = false;
+  } else {
+    const anyoneOn = callers().length > 0;
+    b.innerHTML = `<span class="inner">${MIC_SVG}<span class="biglabel">${anyoneOn ? "Join them" : "Sit down"}</span></span>`;
+    hint.textContent = anyoneOn ? "Three of them are at the fire" : "Opens the mic for everyone in the room";
+    leave.hidden = true;
+  }
+  const you = $("profileBtn");
+  you.textContent = initialOf(state.you.name);
+  you.style.background = hue(state.you.hue);
+}
+
+/* ————— render: chat ————— */
+function renderChat(){
+  const box = $("msgs");
+  let html = "";
+  for(const m of state.chat){
+    if(m.day){ html += `<div class="daybreak">${m.day}</div>`; continue; }
+    let name, hueKey, mine=false;
+    if(m.who==="you"){ name=state.you.name; hueKey=state.you.hue; mine=true; }
+    else { const p = state.members.find(x=>x.id===m.who); name=p?p.name:m.who; hueKey=p?p.hue:"slate"; }
+    html += `
+      <div class="msg${mine?" mine":""}">
+        <div class="mdot" style="background:${hue(hueKey)}">${initialOf(name)}</div>
+        <div class="mbody">
+          <div class="mtop"><span class="mname" style="color:${hue(hueKey)}">${mine?"you":name}</span><span class="mtime">${m.time}</span></div>
+          <div class="mtext">${m.text}</div>
+        </div>
+      </div>`;
+  }
+  box.innerHTML = html;
+  box.scrollTop = box.scrollHeight;
+  const badge = $("unreadBadge");
+  badge.hidden = state.chatOpen || state.unread===0;
+  badge.textContent = state.unread;
+}
+
+function renderAll(){ renderHearth(); renderRoster(); renderMic(); renderChat(); renderScreens(); renderMockPanel(); }
+
+/* ————— screens / entry routing ————— */
+function renderScreens(){
+  $("entryInvite").hidden = state.screen !== "invite";
+  $("entryKnock").hidden  = state.screen !== "knock";
+}
+
+/* honour the one-URL contract for real */
+(function route(){
+  const q = new URLSearchParams(location.search);
+  if(q.get("relay") && q.get("code")) state.screen = "invite";
+  else if(q.get("relay"))             state.screen = "room";
+  else                                state.screen = "knock";
+})();
+
+/* ————— talking simulation ————— */
+function eligibleTalkers(){
+  const ids = callers().filter(m=>!m.muted).map(m=>m.id);
+  if(state.you.inCall && !state.you.muted) ids.push("you");
+  return ids;
+}
+function retalk(){
+  const ids = eligibleTalkers();
+  if(ids.length===0){ state.talker = null; return; }
+  const i = ids.indexOf(state.talker);
+  state.talker = ids[(i+1) % ids.length];
+}
+setInterval(()=>{
+  if(state.screen!=="room") return;
+  const before = state.talker;
+  retalk();
+  if(state.talker!==before){ renderHearth(); renderMic(); }
+}, 3200);
+
+/* ————— mic button behaviour ————— */
+$("micBtn").addEventListener("click", ()=>{
+  if(state.joining) return;
+  if(!state.you.inCall){
+    state.joining = true;
+    renderMic();
+    setTimeout(()=>{        // pretend the browser granted the mic
+      state.joining = false;
+      state.you.inCall = true;
+      state.you.muted = false;
+      if(state.callScenario==="quiet") state.callScenario="quiet"; // you alone is fine
+      state.talker = "you";
+      renderAll();
+      toast("You're in. Everyone in the room can hear you now.");
+    }, 1100);
+  } else {
+    state.you.muted = !state.you.muted;
+    if(state.you.muted && state.talker==="you") retalk();
+    renderHearth(); renderMic();
+  }
+});
+$("leaveBtn").addEventListener("click", ()=>{
+  state.you.inCall = false;
+  state.you.muted = false;
+  if(state.talker==="you") retalk();
+  renderAll();
+});
+
+/* ————— chat ————— */
+function setChat(open){
+  state.chatOpen = open;
+  $("chatPane").classList.toggle("open", open);
+  document.getElementById("app").classList.toggle("chat-open-wide", open);
+  if(open) state.unread = 0;
+  renderChat();
+}
+$("chatToggle").addEventListener("click", ()=> setChat(!state.chatOpen));
+$("chatClose").addEventListener("click", ()=> setChat(false));
+function sendMsg(){
+  const inp = $("chatInput");
+  const v = inp.value.trim();
+  if(!v) return;
+  const t = new Date();
+  state.chat.push({who:"you", time:`${String(t.getHours()).padStart(2,"0")}:${String(t.getMinutes()).padStart(2,"0")}`, text:v.replace(/</g,"&lt;")});
+  inp.value = "";
+  renderChat();
+}
+$("chatSend").addEventListener("click", sendMsg);
+$("chatInput").addEventListener("keydown", e=>{ if(e.key==="Enter") sendMsg(); });
+
+/* ————— sheets ————— */
+function openSheet(id){ $(id).classList.add("open"); }
+function closeSheet(id){ $(id).classList.remove("open"); }
+document.querySelectorAll(".closex").forEach(b=>{
+  b.addEventListener("click", ()=> closeSheet(b.dataset.close));
+});
+document.querySelectorAll(".scrim").forEach(s=>{
+  s.addEventListener("click", e=>{ if(e.target===s) s.classList.remove("open"); });
+});
+
+/* profile */
+$("profileBtn").addEventListener("click", ()=>{
+  $("profileName").value = state.you.name;
+  buildSwatches();
+  openSheet("profileScrim");
+});
+$("profileName").addEventListener("input", e=>{
+  state.you.name = e.target.value.trim() || "Jamie";
+  renderHearth(); renderRoster(); renderMic();
+});
+function buildSwatches(){
+  const box = $("swatches");
+  box.innerHTML = "";
+  for(const k of Object.keys(HUES)){
+    const b = document.createElement("button");
+    b.style.background = HUES[k];
+    b.setAttribute("aria-label", k);
+    if(k===state.you.hue) b.classList.add("sel");
+    b.addEventListener("click", ()=>{
+      state.you.hue = k;
+      buildSwatches();
+      renderHearth(); renderRoster(); renderMic();
+    });
+    box.appendChild(b);
+  }
+}
+$("saveKeyBtn").addEventListener("click", ()=> toast("Mock: key file saved — bothy-key-jamie.ncryptsec"));
+$("copyNpubBtn").addEventListener("click", ()=> toast("Mock: public name copied. Safe to share — it can't unlock anything."));
+$("forgetBtn").addEventListener("click", ()=> toast("Mock: this would wipe the key from this device (after a stern warning)."));
+
+/* key banner */
+$("keyBannerGo").addEventListener("click", ()=>{ $("keyBanner").hidden = true; $("profileBtn").click(); });
+$("keyBannerX").addEventListener("click", ()=>{ $("keyBanner").hidden = true; });
+
+/* bring-your-own identity */
+$("bringIdBtn").addEventListener("click", ()=> openSheet("identityScrim"));
+$("idExtBtn").addEventListener("click", ()=>{
+  closeSheet("identityScrim");
+  enterRoom("Rowan", "loch", false);
+  toast("Mock: signed in with your extension. Your key never left it.");
+});
+$("idFileBtn").addEventListener("click", ()=>{
+  closeSheet("identityScrim");
+  enterRoom("Rowan", "loch", false);
+  toast("Mock: key file read locally. You're in as yourself.");
+});
+
+/* invited entry */
+$("inviteForm").addEventListener("submit", e=>{
+  e.preventDefault();
+  const n = $("inviteName").value.trim();
+  enterRoom(n || "Wanderer", "clay", true);
+});
+function enterRoom(name, hueKey, firstRun){
+  state.you.name = name;
+  state.you.hue = hueKey;
+  state.screen = "room";
+  $("keyBanner").hidden = !firstRun;
+  renderAll();
+}
+
+/* knock entry */
+$("knockForm").addEventListener("submit", e=>{
+  e.preventDefault();
+  state.screen = "room";
+  renderAll();
+  toast("Mock: connected to the relay you gave.");
+});
+
+/* ————— mock switchboard ————— */
+let mockOpen = true;
+function renderMockPanel(){
+  $("mockPanel").hidden = !mockOpen;
+  $("mockTab").textContent = mockOpen ? "mock states ▾" : "mock states ▴";
+  document.querySelectorAll("#mockPanel [data-arrive]").forEach(b=>{
+    const map = {invite:"invite", member:"room", knock:"knock"};
+    b.classList.toggle("on", map[b.dataset.arrive]===state.screen && !(b.dataset.arrive==="member" && state.screen!=="room"));
+  });
+  const callKey =
+    !state.you.inCall && state.callScenario==="quiet" ? "quiet" :
+    !state.you.inCall ? "trio" :
+    state.you.muted ? "you-muted" : "you-live";
+  document.querySelectorAll("#mockPanel [data-call]").forEach(b=>{
+    b.classList.toggle("on", b.dataset.call===callKey);
+  });
+}
+$("mockTab").addEventListener("click", ()=>{ mockOpen = !mockOpen; renderMockPanel(); });
+document.querySelectorAll("#mockPanel [data-arrive]").forEach(b=>{
+  b.addEventListener("click", ()=>{
+    const a = b.dataset.arrive;
+    if(a==="invite"){ state.screen="invite"; $("inviteName").value=""; }
+    if(a==="member"){ state.screen="room"; $("keyBanner").hidden = true; }
+    if(a==="knock"){ state.screen="knock"; }
+    renderAll();
+  });
+});
+document.querySelectorAll("#mockPanel [data-call]").forEach(b=>{
+  b.addEventListener("click", ()=>{
+    const c = b.dataset.call;
+    state.joining = false;
+    if(c==="quiet"){ state.callScenario="quiet"; state.you.inCall=false; state.you.muted=false; state.talker=null; }
+    if(c==="trio"){ state.callScenario="trio"; state.you.inCall=false; state.you.muted=false; state.talker="ailsa"; }
+    if(c==="you-muted"){ state.callScenario="trio"; state.you.inCall=true; state.you.muted=true; state.talker="marta"; }
+    if(c==="you-live"){ state.callScenario="trio"; state.you.inCall=true; state.you.muted=false; state.talker="you"; }
+    state.screen="room";
+    renderAll();
+  });
+});
+
+/* ————— boot ————— */
+state.talker = "ailsa";
+renderAll();
+})();
+</script>
+</body>
+</html>
