@@ -24,6 +24,7 @@ const ICE_SERVERS = [
 ];
 
 const S = window.NobleSecp256k1;
+const KF = window.NobleKeyFormats;
 
 /* ---------- elements ---------- */
 const stageEl = document.getElementById("stage");
@@ -80,6 +81,17 @@ const aoPubkeyEl = document.getElementById("aoPubkey");
 const aoCopyKeyBtn = document.getElementById("aoCopyKey");
 const aoRelaysEl = document.getElementById("aoRelays");
 const aoInvitesEl = document.getElementById("aoInvites");
+const aoKeyNoteEl = document.getElementById("aoKeyNote");
+const aoExtBtn = document.getElementById("aoExtBtn");
+const aoImportInput = document.getElementById("aoImportInput");
+const aoImportBtn = document.getElementById("aoImportBtn");
+const aoPassRow = document.getElementById("aoPassRow");
+const aoPassInput = document.getElementById("aoPassInput");
+const aoImportFailEl = document.getElementById("aoImportFail");
+const aoConfirmEl = document.getElementById("aoConfirm");
+const aoConfirmTextEl = document.getElementById("aoConfirmText");
+const aoConfirmYesBtn = document.getElementById("aoConfirmYes");
+const aoConfirmNoBtn = document.getElementById("aoConfirmNo");
 
 /* ============================================================
    identity
@@ -363,6 +375,110 @@ async function acquireIdentity() {
   const privkey = S.utils.randomPrivateKey();
   await storeSealedPrivkey(privkey);
   return localSigner(privkey);
+}
+
+/* ------------------------------------------------------------
+   bringing an identity in
+
+   An nsec and a NIP-49 ncryptsec are both bech32, and bech32's
+   own length limit is 90 characters, which an ncryptsec exceeds
+   at 162. The limit has to be raised explicitly or every one of
+   them is thrown out as too long before it is even looked at.
+
+   Whatever arrives here is stored exactly the way a minted key
+   is stored: sealed in IndexedDB under a key this page can use
+   but never read out. It does not go to localStorage and it is
+   not kept anywhere a script can read it back.
+   ------------------------------------------------------------ */
+function decodeBech32(text) {
+  const decoded = KF.bech32.decode(text, 5000);
+  return { prefix: decoded.prefix, bytes: Uint8Array.from(KF.bech32.fromWords(decoded.words)) };
+}
+
+// NIP-49: a version byte, the scrypt cost, a 16-byte salt, a 24-byte
+// nonce, the byte recording how its owner handles the key, and the
+// sealed key itself. scrypt at the cost a key was written with is
+// meant to be slow, so this yields to the event loop instead of
+// locking the page up while it runs.
+async function decryptNcryptsec(bytes, passphrase) {
+  const key = await KF.scryptAsync(
+    new TextEncoder().encode(passphrase.normalize("NFKC")),
+    bytes.slice(2, 18),
+    { N: 2 ** bytes[1], r: 8, p: 1, dkLen: 32, asyncTick: 20 }
+  );
+  return KF.xchacha20poly1305(key, bytes.slice(18, 42), bytes.slice(42, 43)).decrypt(bytes.slice(43));
+}
+
+// The private key, or a refusal somebody can act on. A key that isn't
+// one and a passphrase that is wrong are the two failures worth
+// telling apart, because only one of them is worth trying again.
+async function privkeyFromText(text, passphrase) {
+  let decoded;
+  try {
+    decoded = decodeBech32(text);
+  } catch (err) {
+    throw new Error("that doesn't look like an nsec or an ncryptsec");
+  }
+
+  let privkey;
+  if (decoded.prefix === "nsec") {
+    privkey = decoded.bytes;
+  } else if (decoded.prefix === "ncryptsec") {
+    if (decoded.bytes.length !== 91 || decoded.bytes[0] !== 0x02) {
+      throw new Error("that ncryptsec is written in a way hearth doesn't understand");
+    }
+    try {
+      privkey = await decryptNcryptsec(decoded.bytes, passphrase);
+    } catch (err) {
+      throw new Error("that passphrase doesn't open this key");
+    }
+  } else {
+    throw new Error("that's " + (decoded.prefix === "npub" ? "a public key" : "an " + decoded.prefix) +
+      ", not a key hearth can sign with");
+  }
+
+  if (privkey.length !== 32) throw new Error("that key is the wrong length");
+  try {
+    S.schnorr.getPublicKey(privkey);
+  } catch (err) {
+    throw new Error("that isn't a usable key");
+  }
+  return privkey;
+}
+
+// Said once, before anything is written over. There is no backup and
+// no transfer yet, so a key replaced here is a key gone, and that is
+// the fact this has to state rather than imply.
+function replacementWarning(bringing) {
+  if (bringing === "extension") {
+    // Signing in with an extension leaves a sealed key where it is
+    // rather than writing over it, so this must not say it is gone.
+    return "Hearth will sign as the identity your extension holds. The key on this device now, " +
+      shortName(identity.pubkey) + ", stays sealed where it is, but nothing in hearth will use it again.";
+  }
+  const becoming = "Hearth will sign as the key you are importing, sealed on this device in place of " +
+    "the one there now.";
+  const losing = identity.kind === "extension"
+    ? "Your extension keeps its own key, so nothing of yours is lost there."
+    : "The key on this device now, " + shortName(identity.pubkey) + ", is written over and gone. " +
+      "There is no backup and no way to carry a key to another device yet, so it is gone for good " +
+      "unless you have saved it somewhere else.";
+  return becoming + " " + losing;
+}
+
+// A reload rather than a swap in place: every message on screen, the
+// seats around the fire and the relay's own idea of who is connected
+// are all keyed to the identity that was signing a moment ago, and
+// startup already knows how to come up as whoever this device is now.
+async function replaceIdentityWithPrivkey(privkey) {
+  await storeSealedPrivkey(privkey);
+  localStorage.removeItem(SIGNER_CHOICE_KEY);
+  location.reload();
+}
+
+function replaceIdentityWithExtension() {
+  localStorage.setItem(SIGNER_CHOICE_KEY, "extension");
+  location.reload();
 }
 
 function showDevWarning(text) {
@@ -824,6 +940,13 @@ function renderAccountChrome() {
   aoAvatarEl.style.background = colorFor(identity.pubkey);
   aoAvatarEl.textContent = initials(identity.pubkey);
   aoNameEl.textContent = displayName(identity.pubkey);
+  aoKeyNoteEl.textContent = identity.kind === "extension"
+    ? "Your extension holds this identity's key, and hearth only ever asks it to sign. " +
+      "Nothing here can read that key, save a copy of it, or carry it to another device."
+    : "This key is your identity here and it signs everything you say. It stays on this " +
+      "device, sealed so that this page can use it but never read it out. There is no " +
+      "backup and no way to carry it to another device yet.";
+  aoExtBtn.hidden = !(hasExtension() && identity.kind !== "extension");
 }
 
 /* ============================================================
@@ -2168,6 +2291,79 @@ aoCopyKeyBtn.addEventListener("click", () => {
     aoCopyKeyBtn.textContent = "copied";
     setTimeout(() => { aoCopyKeyBtn.textContent = "copy public key"; }, 1500);
   });
+});
+
+/* ---------- bringing an identity in, from the overlay ---------- */
+// Held between checking what was pasted and the person agreeing to
+// what it replaces, so the warning is never shown for a key that
+// turns out not to be one.
+let pendingReplacement = null;
+
+function showImportFailure(message) {
+  aoImportFailEl.textContent = message;
+  aoImportFailEl.hidden = false;
+  aoConfirmEl.hidden = true;
+}
+
+function askToReplace(bringing, apply) {
+  aoImportFailEl.hidden = true;
+  aoConfirmTextEl.textContent = replacementWarning(bringing);
+  aoConfirmEl.hidden = false;
+  pendingReplacement = apply;
+}
+
+// Only one of the two formats has a passphrase, so only one of them
+// is asked for one.
+aoImportInput.addEventListener("input", () => {
+  aoPassRow.hidden = !aoImportInput.value.trim().toLowerCase().startsWith("ncryptsec1");
+});
+
+aoImportBtn.addEventListener("click", async () => {
+  const text = aoImportInput.value.trim();
+  if (!text) return;
+  aoImportFailEl.hidden = true;
+  aoConfirmEl.hidden = true;
+  aoImportBtn.disabled = true;
+  // Opening an ncryptsec takes seconds by design, and a button that
+  // goes quiet for that long reads as nothing having happened.
+  aoImportBtn.textContent = "checking";
+  let privkey;
+  try {
+    privkey = await privkeyFromText(text, aoPassInput.value);
+  } catch (err) {
+    showImportFailure(err.message);
+    return;
+  } finally {
+    aoImportBtn.disabled = false;
+    aoImportBtn.textContent = "import";
+  }
+  askToReplace("key", () => replaceIdentityWithPrivkey(privkey));
+});
+
+aoExtBtn.addEventListener("click", async () => {
+  aoImportFailEl.hidden = true;
+  try {
+    await window.nostr.getPublicKey();
+  } catch (err) {
+    showImportFailure("your extension didn't hand over a public key");
+    return;
+  }
+  askToReplace("extension", replaceIdentityWithExtension);
+});
+
+aoConfirmYesBtn.addEventListener("click", () => {
+  const apply = pendingReplacement;
+  pendingReplacement = null;
+  aoConfirmEl.hidden = true;
+  if (apply) apply();
+});
+
+aoConfirmNoBtn.addEventListener("click", () => {
+  pendingReplacement = null;
+  aoConfirmEl.hidden = true;
+  aoImportInput.value = "";
+  aoPassInput.value = "";
+  aoPassRow.hidden = true;
 });
 
 /* ============================================================

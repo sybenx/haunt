@@ -396,6 +396,25 @@ input{font:inherit;color:inherit;background:none;border:none}
 }
 .pillBtn:active{border-color:var(--dim)}
 .keyNote{font-size:12px;color:var(--faint);line-height:1.55;margin-top:10px}
+
+/* bringing an identity in: a field for it, and the one confirmation
+   that stands between a pasted key and the key it writes over */
+.importRow{display:flex;gap:8px;margin-top:10px}
+.importRow input{
+  flex:1;min-width:0;background:var(--raise2);border:1px solid var(--line2);border-radius:10px;
+  padding:9px 12px;font-size:13px;color:var(--ink);
+}
+.importRow input::placeholder{color:var(--faint)}
+.importRow button{
+  padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;
+  background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205;
+}
+.importRow button:disabled{opacity:.5}
+.confirmBox{
+  margin-top:12px;padding:12px 14px;border-radius:12px;
+  background:var(--raise);border:1px solid rgba(255,109,90,.4);
+}
+.confirmBox p{font-size:12.5px;line-height:1.55;color:var(--ink);margin-bottom:10px}
 .relayList{display:flex;flex-direction:column;gap:6px}
 .relayItem{
   display:flex;align-items:center;gap:10px;text-align:left;
@@ -566,9 +585,31 @@ input{font:inherit;color:inherit;background:none;border:none}
       <div class="keyCard">
         <div class="keyHex" id="aoPubkey"></div>
         <button class="pillBtn" id="aoCopyKey">copy public key</button>
-        <p class="keyNote">This key was minted quietly on this device and it is your identity here.
-          It signs everything you say, and it never leaves this device. Nobody will ever ask you
-          to type or paste it anywhere &mdash; anyone who does is trying to rob you.</p>
+        <p class="keyNote" id="aoKeyNote"></p>
+      </div>
+    </div>
+
+    <div class="sect">
+      <div class="lbl">bring your own identity</div>
+      <div class="secNote">Already have a nostr identity? Bring it with you. Whatever you bring
+        takes the place of the identity this device is using now.</div>
+      <button class="pillBtn" id="aoExtBtn" hidden>sign in with your extension</button>
+      <div class="importRow">
+        <input id="aoImportInput" type="password" autocomplete="off" spellcheck="false"
+          placeholder="nsec1&hellip; or ncryptsec1&hellip;">
+        <button id="aoImportBtn">import</button>
+      </div>
+      <div class="importRow" id="aoPassRow" hidden>
+        <input id="aoPassInput" type="password" autocomplete="off"
+          placeholder="the passphrase for that key">
+      </div>
+      <p class="panelFail" id="aoImportFail" hidden></p>
+      <div class="confirmBox" id="aoConfirm" hidden>
+        <p id="aoConfirmText"></p>
+        <div class="choiceRow">
+          <button id="aoConfirmYes">replace my identity</button>
+          <button id="aoConfirmNo" class="quiet">cancel</button>
+        </div>
       </div>
     </div>
 
@@ -605,6 +646,7 @@ input{font:inherit;color:inherit;background:none;border:none}
 </div>
 
 <script src="vendor/noble-secp256k1.js"></script>
+<script src="vendor/noble-key-formats.js"></script>
 <script src="kinds.js"></script>
 <script src="app.js"></script>
 </body>
