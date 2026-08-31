@@ -83,6 +83,8 @@ const aoRelaysEl = document.getElementById("aoRelays");
 const aoInvitesEl = document.getElementById("aoInvites");
 const aoKeyNoteEl = document.getElementById("aoKeyNote");
 const aoExtBtn = document.getElementById("aoExtBtn");
+const aoNotifyBtn = document.getElementById("aoNotifyBtn");
+const aoNotifyNoteEl = document.getElementById("aoNotifyNote");
 const aoImportInput = document.getElementById("aoImportInput");
 const aoImportBtn = document.getElementById("aoImportBtn");
 const aoPassRow = document.getElementById("aoPassRow");
@@ -847,8 +849,9 @@ function renderChrome() {
   const name = roomName || "#" + GROUP_ID;
   tbNameEl.textContent = name;
   vpNameEl.textContent = name;
-  // The tab carries the group's name too, for somebody who has two open.
-  document.title = roomName ? "Hearth - " + roomName : "Hearth";
+  // The tab carries the group's name too, for somebody who has two
+  // open, and an unread count in front of it when there is one.
+  renderUnread();
 }
 
 function setStatus(text, kind) {
@@ -971,6 +974,13 @@ async function handleFrame(frame, relayUrl, epoch) {
     if (authState === "authed" || authState === "none") {
       setStatus("connected", "lit");
     }
+    // Everything stored is on screen, so anything after this is
+    // something that just happened. The call takes a moment longer:
+    // it lives in heartbeats rather than in stored events, so the
+    // people already around the fire announce themselves over the
+    // next round of them and none of that is news.
+    historyDone = true;
+    callNewsAt = Date.now() + HEARTBEAT_MS + 1500;
     seedNameFromProfile();
     refreshSeededName();
     return;
@@ -1336,6 +1346,10 @@ function renderIncoming(event) {
   if (outbox.has(event.id)) return; // our own message, already rendered optimistically
   const row = messageRow(event.pubkey, event.content, formatTime(event.created_at), event.pubkey === identity.pubkey);
   appendRow(row, event.created_at);
+  // Fifty messages of history are not fifty things that just
+  // happened, and nothing anybody says is news to the person who
+  // said it.
+  if (historyDone && event.pubkey !== identity.pubkey) newsOfMessage(event.pubkey);
 }
 
 function markSent(el) {
@@ -1491,6 +1505,13 @@ async function loadRelayInfo() {
   renderChrome();
   isOwner = info.pubkey === identity.pubkey;
   aoInvitesEl.hidden = !isOwner;
+  // A relay that can reach somebody with hearth closed publishes the
+  // public half of its VAPID key here. Without one, notifications
+  // are still raised, but only while hearth is open — and the
+  // account overlay says so rather than promising otherwise.
+  vapidKey = typeof info.push_key === "string" && info.push_key.trim() !== "" ? info.push_key.trim() : null;
+  renderNotifyChrome();
+  if (vapidKey && notifyWanted()) subscribeToPush();
 }
 
 async function createInvite() {
@@ -1695,6 +1716,7 @@ function handlePresence(event) {
     const isNew = !call.presence.has(event.pubkey);
     call.presence.set(event.pubkey, { lastSeen: Date.now(), muted: !!payload.muted });
     if (isNew && call.joined) maybeConnectToPeer(event.pubkey);
+    if (isNew) newsOfVoice(event.pubkey);
   }
   renderHearth();
 }
@@ -2580,6 +2602,9 @@ function switchRelay(url) {
   aoInvitesEl.hidden = true;
   inviteLinkRowEl.hidden = true;
   roomName = null;
+  historyDone = false;
+  vapidKey = null;
+  unread = 0;
   renderChrome();
   renderAccountChrome();
   renderHearth();
@@ -2589,6 +2614,7 @@ function switchRelay(url) {
 function openAccount() {
   renderAccountChrome();
   aoNameInput.value = knownName(identity.pubkey) || "";
+  renderNotifyChrome();
   aoPubkeyEl.textContent = identity.pubkey;
   renderRelayList();
   if (isOwner) refreshInviteList();
@@ -2692,6 +2718,268 @@ aoConfirmNoBtn.addEventListener("click", () => {
 });
 
 /* ============================================================
+   being told
+
+   Three different things wear the word "notification" here and it
+   is worth keeping them apart.
+
+   The unread count in the tab and on the icon costs nothing and
+   asks nobody: it is just the title and the favicon, and it works
+   in every browser hearth runs in.
+
+   A banner raised while hearth is open needs permission, and on a
+   phone it needs the service worker — android's chrome refuses the
+   Notification constructor outright, and safari does not have one
+   at all unless the page has been added to the home screen. So
+   every banner goes through the registration, on every platform,
+   rather than branching on which.
+
+   A notification that arrives when hearth is closed is a push, and
+   a push needs a server to send it. That is the relay's job and
+   the relay has to grow it: see reference/push.md. Everything here
+   does its half — reads the key, subscribes, hands the
+   subscription over — and degrades to the two above when the relay
+   has no key to offer.
+   ============================================================ */
+const NOTIFY_KEY = "hearth:notify";
+let swReg = null;
+let vapidKey = null; // the relay's push key, once its NIP-11 says it has one
+let unread = 0;
+let historyDone = false; // stored history is on screen, so what lands now is new
+
+// Everybody in the call heartbeats, and on connecting they all
+// arrive at once looking exactly like somebody who just walked in.
+// Nothing about the call is news until a round of heartbeats has
+// been and gone.
+let callNewsAt = 0;
+
+function notifyWanted() {
+  return localStorage.getItem(NOTIFY_KEY) === "on";
+}
+
+// Not looking means the tab is elsewhere, or hearth is showing the
+// fire rather than the conversation, or the conversation is scrolled
+// back through history. In none of those is a message on screen.
+function notLooking() {
+  if (document.visibilityState !== "visible") return true;
+  if (ui.mode === MODE_VOICE) return true;
+  return distFromBottom() >= 80;
+}
+
+/* ---------- the count in the tab and on the icon ---------- */
+
+// The same fire the page loaded with, with an ember sitting on its
+// shoulder. Drawn here rather than kept as a second file for the
+// reason the first one is inline: a copy of hearth is one thing.
+function faviconWith(dot) {
+  const flame =
+    "<rect width='32' height='32' rx='7' fill='%231a120c'/>" +
+    "<path d='M17.2 2.8c1.1 4.2-0.6 6.4-2.3 8.4-1.1-1.0-1.6-2.3-1.6-3.7-3.4 2.7-5.2 6.3-5.2 9.9 0 5.2 4.0 8.9 8.0 8.9s8.0-3.7 8.0-8.9c0-6.0-3.9-11.2-6.9-14.6z' fill='%23ff9e5a'/>" +
+    "<path d='M16.1 14.5c-2.6 2.2-3.9 4.6-3.9 6.8 0 2.6 1.8 4.5 3.9 4.5s3.9-1.9 3.9-4.5c0-2.2-1.3-4.6-3.9-6.8z' fill='%23ffc07a'/>";
+  const badge = dot
+    ? "<circle cx='24.5' cy='7.5' r='7' fill='%231a120c'/><circle cx='24.5' cy='7.5' r='5' fill='%23ff6d5a'/>"
+    : "";
+  return "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>" +
+    flame + badge + "</svg>";
+}
+
+function renderUnread() {
+  const room = roomName ? "Hearth - " + roomName : "Hearth";
+  document.title = unread > 0 ? "(" + unread + ") " + room : room;
+  const icon = document.querySelector('link[rel="icon"]');
+  if (icon) icon.href = faviconWith(unread > 0);
+  if (navigator.setAppBadge) {
+    if (unread > 0) navigator.setAppBadge(unread).catch(() => {});
+    else if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+  }
+}
+
+function clearUnread() {
+  if (unread === 0) return;
+  unread = 0;
+  renderUnread();
+}
+
+/* ---------- the banner ---------- */
+
+// Silent on hearth's side. The phone makes whatever noise the
+// person has told it to make for notifications, which is the noise
+// they actually chose.
+async function raiseBanner(title, body, tag) {
+  if (!notifyWanted()) return;
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  if (!swReg) return;
+  try {
+    await swReg.showNotification(title, {
+      body,
+      icon: "icon.svg",
+      badge: "icon.svg",
+      tag: "hearth:" + tag,
+      renotify: false,
+      silent: true,
+    });
+  } catch (err) {
+    // A browser that granted permission and then refused to show it
+    // is not something to interrupt anybody about.
+  }
+}
+
+// Both of these fire only when there is nothing on screen to see.
+// The count moves either way, because it is what somebody coming
+// back looks at.
+function newsOfMessage(pubkey) {
+  if (!notLooking()) return;
+  unread += 1;
+  renderUnread();
+  raiseBanner(roomName || "hearth", displayName(pubkey) + " said something", "message");
+}
+
+function newsOfVoice(pubkey) {
+  if (Date.now() < callNewsAt) return; // still finding out who was already here
+  if (!notLooking()) return;
+  raiseBanner(roomName || "hearth", displayName(pubkey) + " is at the fire", "voice");
+}
+
+/* ---------- turning it on ---------- */
+
+// Permission has to be asked behind a gesture, and it may only be
+// asked once — a browser that has been refused stays refused, and
+// asking again does nothing but waste the one chance. So the button
+// says which of the three states this is in rather than pretending
+// it can always be pressed.
+function renderNotifyChrome() {
+  const supported = typeof Notification !== "undefined" && "serviceWorker" in navigator;
+  if (!supported) {
+    aoNotifyBtn.hidden = true;
+    aoNotifyNoteEl.textContent =
+      "This browser can't raise a notification. On an iPhone, adding hearth to the home " +
+      "screen from the share menu gives it one.";
+    return;
+  }
+  aoNotifyBtn.hidden = false;
+  if (Notification.permission === "denied") {
+    aoNotifyBtn.disabled = true;
+    aoNotifyBtn.textContent = "notifications are blocked";
+    aoNotifyNoteEl.textContent =
+      "This browser has been told not to let hearth notify you, and only you can undo that, " +
+      "in the site settings your browser keeps for this page.";
+    return;
+  }
+  aoNotifyBtn.disabled = false;
+  if (notifyWanted() && Notification.permission === "granted") {
+    aoNotifyBtn.textContent = "turn notifications off";
+    aoNotifyNoteEl.textContent = vapidKey
+      ? "You'll be told when somebody says something or comes to the fire, including when " +
+        "hearth is closed."
+      : "You'll be told when somebody says something or comes to the fire, as long as hearth " +
+        "is open. This relay can't reach you when it isn't.";
+    return;
+  }
+  aoNotifyBtn.textContent = "turn on notifications";
+  aoNotifyNoteEl.textContent =
+    "Be told when somebody says something or comes to the fire while you're looking elsewhere.";
+}
+
+async function turnNotificationsOn() {
+  aoNotifyBtn.disabled = true;
+  let permission = Notification.permission;
+  if (permission === "default") {
+    try {
+      permission = await Notification.requestPermission();
+    } catch (err) {
+      permission = "denied";
+    }
+  }
+  if (permission !== "granted") {
+    renderNotifyChrome();
+    return;
+  }
+  localStorage.setItem(NOTIFY_KEY, "on");
+  await subscribeToPush();
+  renderNotifyChrome();
+}
+
+async function turnNotificationsOff() {
+  aoNotifyBtn.disabled = true;
+  localStorage.removeItem(NOTIFY_KEY);
+  await unsubscribeFromPush();
+  renderNotifyChrome();
+}
+
+aoNotifyBtn.addEventListener("click", () => {
+  if (notifyWanted() && typeof Notification !== "undefined" && Notification.permission === "granted") {
+    turnNotificationsOff();
+  } else {
+    turnNotificationsOn();
+  }
+});
+
+/* ---------- push: the half of it that lives in the page ---------- */
+
+// A VAPID key is base64url on the wire and bytes to the push
+// manager, and no browser does that conversion for you.
+function vapidBytes(base64url) {
+  const padded = base64url.replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(padded + "=".repeat((4 - padded.length % 4) % 4));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+async function subscribeToPush() {
+  if (!swReg || !vapidKey || !swReg.pushManager) return;
+  try {
+    const existing = await swReg.pushManager.getSubscription();
+    const sub = existing || await swReg.pushManager.subscribe({
+      // Required, and the only setting a browser will accept: a push
+      // that shows nothing is a push that can be used to track
+      // somebody silently, and browsers stopped allowing it.
+      userVisibleOnly: true,
+      applicationServerKey: vapidBytes(vapidKey),
+    });
+    await manageRelay("subscribepush", [JSON.parse(JSON.stringify(sub))]);
+  } catch (err) {
+    // No push, then. The banner while hearth is open still works,
+    // and saying so is renderNotifyChrome's job rather than a
+    // failure worth putting in front of somebody.
+  }
+}
+
+async function unsubscribeFromPush() {
+  if (!swReg || !swReg.pushManager) return;
+  try {
+    const sub = await swReg.pushManager.getSubscription();
+    if (!sub) return;
+    await manageRelay("unsubscribepush", [sub.endpoint]).catch(() => {});
+    await sub.unsubscribe();
+  } catch (err) {
+    // Nothing here is worth interrupting anybody about either.
+  }
+}
+
+// Registered on every load, whether or not anybody has said yes:
+// the worker is what raises a banner, and the permission prompt
+// should not also be a wait for a file to install.
+function registerWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.register("sw.js").then((reg) => {
+    swReg = reg;
+    renderNotifyChrome();
+    if (notifyWanted()) subscribeToPush();
+  }).catch(() => {
+    // A page served from something that is not a secure context, or
+    // a browser with workers switched off.
+  });
+}
+
+// Coming back to the conversation is what marks it read, and being
+// at the fire is not coming back to it.
+document.addEventListener("visibilitychange", () => {
+  if (!notLooking()) clearUnread();
+});
+scrollEl.addEventListener("scroll", () => {
+  if (!notLooking()) clearUnread();
+}, { passive: true });
+
+/* ============================================================
    startup
    ============================================================ */
 function start(relayUrl) {
@@ -2719,6 +3007,7 @@ function start(relayUrl) {
   renderAccountChrome();
   renderChrome();
   renderHearth();
+  registerWorker();
 
   layout();
   setMode(MODE_VOICE, false); // the room's face is the fire

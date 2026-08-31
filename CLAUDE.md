@@ -45,6 +45,15 @@ stops looking, and nothing they chose is ever taken back by a profile updated so
 else. It never writes to the profile in either case, and the group's copy lives in an
 event scoped to the group, so one key can be called different things in two of them.
 
+Being told is something a person turns on, never something hearth decides for them. The
+count in the tab costs nothing and is always there; a notification while hearth is open
+asks permission first; and one that arrives when hearth is closed needs the relay to
+send it, which means telling the relay which devices are yours. That last one is worth
+asking for and not worth assuming, so it lives behind the account icon with the rest of
+what is yours. A notification names the room and never what was said: the payload goes
+through Apple's or Google's push service on its way to the phone, and the contents of
+the room are not theirs to hold. See `reference/push.md` for the relay's half.
+
 A member moves their identity to a second device by showing a code on one screen and
 scanning it with the other. The code carries a temporary public key rather than the
 identity itself, so photographing it achieves nothing; the device that already holds the

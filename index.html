@@ -8,6 +8,15 @@
      serves its own copy of Hearth and a copy should not depend on a second
      request to a host that may not be there. -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231a120c'/><path d='M17.2 2.8c1.1 4.2-0.6 6.4-2.3 8.4-1.1-1.0-1.6-2.3-1.6-3.7-3.4 2.7-5.2 6.3-5.2 9.9 0 5.2 4.0 8.9 8.0 8.9s8.0-3.7 8.0-8.9c0-6.0-3.9-11.2-6.9-14.6z' fill='%23ff9e5a'/><path d='M16.1 14.5c-2.6 2.2-3.9 4.6-3.9 6.8 0 2.6 1.8 4.5 3.9 4.5s3.9-1.9 3.9-4.5c0-2.2-1.3-4.6-3.9-6.8z' fill='%23ffc07a'/></svg>">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1d1510">
+<!-- iOS reads none of the manifest for this: a page added to the home
+     screen is standalone because of the meta below, and only a page
+     added to the home screen may raise a notification there at all. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hearth">
+<link rel="apple-touch-icon" href="icon.svg">
 <style>
 /* ============================================================
    hearth — the room, and a fire in it.
@@ -593,6 +602,13 @@ input{font:inherit;color:inherit;background:none;border:none}
         <button class="pillBtn" id="aoCopyKey">copy public key</button>
         <p class="keyNote" id="aoKeyNote"></p>
       </div>
+    </div>
+
+    <div class="sect">
+      <div class="lbl">notifications</div>
+      <div class="secNote" id="aoNotifyNote">Be told when somebody says something or comes to the
+        fire while you're looking elsewhere.</div>
+      <button class="pillBtn" id="aoNotifyBtn">turn on notifications</button>
     </div>
 
     <div class="sect">
