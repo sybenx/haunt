@@ -35,10 +35,6 @@ const tbStatusEl = document.getElementById("tbStatus");
 const vpNameEl = document.getElementById("vpName");
 const vpStatusEl = document.getElementById("vpStatus");
 const accountBtn = document.getElementById("accountBtn");
-const signInOfferEl = document.getElementById("signInOffer");
-const signInExtBtn = document.getElementById("signInExt");
-const signInNewBtn = document.getElementById("signInNew");
-const signInFailEl = document.getElementById("signInFail");
 const relaySetup = document.getElementById("relaySetup");
 const relayInput = document.getElementById("relayInput");
 const relayConnect = document.getElementById("relayConnect");
@@ -54,6 +50,10 @@ const joinRefusedMsgEl = document.getElementById("joinRefusedMsg");
 const namePromptEl = document.getElementById("namePrompt");
 const nameInput = document.getElementById("nameInput");
 const nameSubmitBtn = document.getElementById("nameSubmit");
+const landingExtRowEl = document.getElementById("landingExtRow");
+const landingExtBtn = document.getElementById("landingExt");
+const landingNoteEl = document.getElementById("landingNote");
+const landingFailEl = document.getElementById("landingFail");
 const newInviteBtn = document.getElementById("newInviteBtn");
 const inviteLinkRowEl = document.getElementById("inviteLinkRow");
 const inviteLinkTextEl = document.getElementById("inviteLinkText");
@@ -281,34 +281,221 @@ async function extensionIdentitySource() {
   return extensionSigner(await window.nostr.getPublicKey());
 }
 
-// Offered, never required and never the default. Somebody arriving on
-// an invite link is joining as a new person in this group rather than
-// as whoever they already are on nostr, so the offer stays out of
-// that path entirely and the quiet mint happens as it always did.
-async function offerExtensionSignIn() {
-  if (!hasExtension()) return null;
-  if (parseFragment().get("code")) return null;
+/* ============================================================
+   the name somebody already has
+
+   Signing in with an extension says who this person is; it does not
+   say what to call them. That is in their kind 0, and their kind 0 is
+   on the public relays rather than on the group's, so this is the one
+   place Hearth reads from the wider network. It reads one thing about
+   one pubkey, and only when somebody has just chosen to sign in.
+
+   Nothing here is trusted. A public relay can serve any JSON it likes
+   under any pubkey, so the profile it returns is checked against its
+   own id and signature before a word of it is used.
+   ============================================================ */
+const NAME_LOOKUP_RELAYS = [
+  // purplepag.es exists to hold exactly these two kinds and answers
+  // fastest; the others are there for somebody whose profile never
+  // reached it.
+  "wss://purplepag.es",
+  "wss://relay.damus.io",
+  "wss://nos.lol",
+  "wss://relay.primal.net",
+];
+const NAME_LOOKUP_TIMEOUT = 5000;
+
+// One relay, one subscription, whatever came back before EOSE or the
+// timeout. A relay that refuses, drops or never opens returns nothing
+// rather than failing: this whole lookup is an improvement on asking,
+// and every part of it is allowed to come up empty.
+function queryRelay(url, filters) {
   return new Promise((resolve) => {
-    signInOfferEl.hidden = false;
-    signInExtBtn.addEventListener("click", async () => {
-      signInFailEl.hidden = true;
-      signInExtBtn.disabled = true;
-      try {
-        const signer = extensionSigner(await window.nostr.getPublicKey());
-        localStorage.setItem(SIGNER_CHOICE_KEY, "extension");
-        signInOfferEl.hidden = true;
-        resolve(signer);
-      } catch (err) {
-        signInExtBtn.disabled = false;
-        signInFailEl.textContent = "your extension didn't hand over a public key. " +
-          "You can try again, or carry on as somebody new.";
-        signInFailEl.hidden = false;
+    const found = [];
+    let socket = null;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { if (socket) socket.close(); } catch (err) {}
+      resolve(found);
+    };
+    const timer = setTimeout(finish, NAME_LOOKUP_TIMEOUT);
+    try {
+      socket = new WebSocket(url);
+    } catch (err) {
+      finish();
+      return;
+    }
+    socket.addEventListener("open", () => {
+      socket.send(JSON.stringify(["REQ", "look", ...filters]));
+    });
+    socket.addEventListener("message", (e) => {
+      let frame;
+      try { frame = JSON.parse(e.data); } catch (err) { return; }
+      if (frame[0] === "EVENT" && frame[1] === "look") found.push(frame[2]);
+      else if (frame[0] === "EOSE" && frame[1] === "look") finish();
+    });
+    socket.addEventListener("error", finish);
+    socket.addEventListener("close", finish);
+  });
+}
+
+// The id is a hash of the event's own contents, so recomputing it
+// catches a relay that edited the content, and the signature catches
+// one that rewrote the event wholesale.
+async function eventIsGenuine(event) {
+  if (!event || typeof event.id !== "string" || typeof event.sig !== "string") return false;
+  if (typeof event.pubkey !== "string" || typeof event.content !== "string") return false;
+  if (!Array.isArray(event.tags) || typeof event.created_at !== "number") return false;
+  try {
+    const idBytes = await S.utils.sha256(new TextEncoder().encode(serializeEvent(event)));
+    if (S.utils.bytesToHex(idBytes) !== event.id) return false;
+    return await S.schnorr.verify(event.sig, idBytes, event.pubkey);
+  } catch (err) {
+    return false;
+  }
+}
+
+async function lookupNostrName(pubkey) {
+  const newest = (events, kind) => events
+    .filter((e) => e && e.kind === kind && e.pubkey === pubkey)
+    .sort((a, b) => b.created_at - a.created_at)[0] || null;
+
+  const filters = [{ kinds: [KINDS.PROFILE, KINDS.RELAY_LIST], authors: [pubkey], limit: 4 }];
+  const seen = (await Promise.all(
+    NAME_LOOKUP_RELAYS.map((url) => queryRelay(url, filters))
+  )).flat();
+
+  let profile = newest(seen, KINDS.PROFILE);
+
+  // NIP-65. Somebody who publishes nowhere near the four relays above
+  // has said where they do publish, and the newest copy of a
+  // replaceable event is the one that counts wherever it turns up.
+  const list = newest(seen, KINDS.RELAY_LIST);
+  if (list) {
+    const writes = list.tags
+      .filter((t) => t[0] === "r" && typeof t[1] === "string" && (t.length < 3 || t[2] === "write"))
+      .map((t) => t[1])
+      .filter((url) => url.startsWith("wss://") && !NAME_LOOKUP_RELAYS.includes(url))
+      .slice(0, 4);
+    if (writes.length > 0) {
+      const more = (await Promise.all(
+        writes.map((url) => queryRelay(url, [{ kinds: [KINDS.PROFILE], authors: [pubkey], limit: 2 }]))
+      )).flat();
+      const later = newest(more, KINDS.PROFILE);
+      if (later && (!profile || later.created_at > profile.created_at)) profile = later;
+    }
+  }
+
+  if (!profile) return null;
+  if (!(await eventIsGenuine(profile))) return null;
+  let meta;
+  try { meta = JSON.parse(profile.content); } catch (err) { return null; }
+  // NIP-01 defines name. display_name is a convention rather than the
+  // spec, and it is what several clients put the readable one in, so
+  // it stands in when name is missing.
+  for (const field of ["name", "display_name"]) {
+    const value = meta[field];
+    if (typeof value === "string" && value.trim() !== "") return value.trim().slice(0, 40);
+  }
+  return null;
+}
+
+/* ============================================================
+   the landing screen
+
+   The first thing anybody sees who has no identity on this device.
+   It asks the only question that has to be answered before there is
+   somebody to be, and it asks it before a key is minted, so that
+   signing in with an extension never means naming a key that is
+   about to be thrown away. Somebody who signs in is asked nothing at
+   all when their own name can be found.
+
+   An invite arrival sees this too, which costs a person who follows
+   a spent link the name they typed into it. That is the trade for
+   not minting a key, and a group profile, for somebody who already
+   has an identity and only wants to use it here.
+   ============================================================ */
+let pendingName = null; // a name given before there was a relay to publish it to
+
+function landing() {
+  return new Promise((resolve) => {
+    let signedIn = null; // an extension identity, once it has been taken
+
+    landingExtRowEl.hidden = !hasExtension();
+    namePromptEl.hidden = false;
+    nameInput.focus();
+
+    // The name is the whole point of this screen, so there is no way
+    // past it without one. Nobody arrives in the group as eight hex
+    // characters they never chose.
+    const gate = () => { nameSubmitBtn.disabled = nameInput.value.trim() === ""; };
+    nameInput.addEventListener("input", gate);
+    gate();
+
+    const enter = (signer) => {
+      namePromptEl.hidden = true;
+      resolve(signer);
+    };
+
+    const submitName = async () => {
+      const name = nameInput.value.trim();
+      if (!name) return;
+      pendingName = name;
+      if (signedIn) {
+        enter(signedIn);
+        return;
       }
+      const privkey = S.utils.randomPrivateKey();
+      await storeSealedPrivkey(privkey);
+      enter(localSigner(privkey));
+    };
+
+    const signIn = async () => {
+      landingFailEl.hidden = true;
+      landingExtBtn.disabled = true;
+      nameSubmitBtn.disabled = true;
+      let signer;
+      try {
+        signer = extensionSigner(await window.nostr.getPublicKey());
+      } catch (err) {
+        landingExtBtn.disabled = false;
+        gate();
+        landingFailEl.textContent = "your extension didn't hand over a public key. " +
+          "You can try again, or pick a name and come in as somebody new.";
+        landingFailEl.hidden = false;
+        return;
+      }
+      localStorage.setItem(SIGNER_CHOICE_KEY, "extension");
+      signedIn = signer;
+      landingNoteEl.textContent = "looking for your name";
+      landingNoteEl.hidden = false;
+      const found = await lookupNostrName(signer.pubkey);
+      landingNoteEl.hidden = true;
+      if (found) {
+        pendingName = found;
+        enter(signer);
+        return;
+      }
+      // Signed in and nameless. The screen stays for the one question
+      // it has left, and the offer goes, because it has been taken —
+      // which on its own looks like the button did nothing, so the
+      // screen says what happened and what is still wanted.
+      landingExtRowEl.hidden = true;
+      landingNoteEl.textContent =
+        "You're signed in. There's no name on your nostr profile, so give one here.";
+      landingNoteEl.hidden = false;
+      gate();
+      nameInput.focus();
+    };
+
+    nameSubmitBtn.addEventListener("click", submitName);
+    nameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submitName();
     });
-    signInNewBtn.addEventListener("click", () => {
-      signInOfferEl.hidden = true;
-      resolve(null);
-    });
+    landingExtBtn.addEventListener("click", signIn);
   });
 }
 
@@ -360,21 +547,16 @@ async function devIdentitySource() {
 // sealed key may well still be sitting behind it.
 const identitySources = [devIdentitySource, extensionIdentitySource, storedIdentitySource];
 
-// Minting is the fallthrough rather than a source: it is what happens
-// when nobody has this person's key. It stays silent, and the one
-// thing offered before it is a signing extension this browser already
-// has — an offer, taken only by somebody who came to be who they
-// already are.
+// The landing screen is the fallthrough rather than a source: it is
+// what happens when nobody has this person's key. Minting now sits
+// inside it, behind a name, because a key with nobody's name on it is
+// not an identity anybody asked for.
 async function acquireIdentity() {
   for (const source of identitySources) {
     const found = await source();
     if (found) return found;
   }
-  const chosen = await offerExtensionSignIn();
-  if (chosen) return chosen;
-  const privkey = S.utils.randomPrivateKey();
-  await storeSealedPrivkey(privkey);
-  return localSigner(privkey);
+  return await landing();
 }
 
 /* ------------------------------------------------------------
@@ -731,10 +913,20 @@ function sendEvent(event) {
 function subscribe() {
   ws.send(JSON.stringify(["REQ", SUB_ID,
     { kinds: [KINDS.CHAT], "#h": [GROUP_ID], limit: 50 },
-    { kinds: [KINDS.PROFILE], "#h": [GROUP_ID] },
+    { kinds: [KINDS.MEMBER], "#h": [GROUP_ID] },
     { kinds: [KINDS.CALL_PRESENCE], "#h": [GROUP_ID] },
     { kinds: [KINDS.CALL_SIGNAL], "#h": [GROUP_ID], "#p": [identity.pubkey] },
   ]));
+  // A name from the landing screen has had nowhere to go until now,
+  // and every way into the group ends here: redeemed an invite,
+  // walked in as a member, or came back after an auth. A relay that
+  // wants AUTH first refuses the profile, and the outbox sends it
+  // again once the auth lands.
+  if (pendingName) {
+    const name = pendingName;
+    pendingName = null;
+    publishProfileName(name);
+  }
 }
 
 async function handleFrame(frame, relayUrl, epoch) {
@@ -743,7 +935,7 @@ async function handleFrame(frame, relayUrl, epoch) {
   if (type === "EVENT" && frame[1] === SUB_ID) {
     const event = frame[2];
     if (event.kind === KINDS.CHAT) renderIncoming(event);
-    else if (event.kind === KINDS.PROFILE) handleProfile(event);
+    else if (event.kind === KINDS.MEMBER) handleProfile(event);
     else if (event.kind === KINDS.CALL_PRESENCE) handlePresence(event);
     else if (event.kind === KINDS.CALL_SIGNAL) handleSignal(event);
     return;
@@ -814,11 +1006,11 @@ async function handleFrame(frame, relayUrl, epoch) {
     if (entry.kind === "join") {
       outbox.delete(eventId);
       if (ok) {
-        // An empty message is a fresh admission; "already a member of
-        // this group" is this key coming back with a code it didn't
-        // need, which leaves the code unspent. Only the fresh member
-        // gets asked their name.
-        finishJoin(message === "");
+        // Fresh admission or "already a member of this group" — this
+        // key coming back with a code it didn't need, which leaves the
+        // code unspent. Both are in, and neither is asked anything:
+        // whoever needed a name gave one on the landing screen.
+        finishJoin();
       } else {
         // Shown verbatim. The relay's refusal is deliberately uniform
         // across unknown, spent, expired and revoked codes, so nothing
@@ -888,11 +1080,18 @@ async function handleFrame(frame, relayUrl, epoch) {
 }
 
 /* ============================================================
-   profiles — who each pubkey asked to be called
+   profiles — who each pubkey asked to be called in this group
 
-   A kind 0, tagged into the group so only the group can read it.
-   Replaceable, so the newest wins; the map tracks created_at to
-   keep an old one arriving late from clobbering a rename.
+   A kind 30078 with the group in its `d`, tagged into the group so
+   only the group can read it. Deliberately not a kind 0: that one is
+   keyed by pubkey and kind alone, so a member's real nostr profile
+   arriving from anywhere else would take the place of the name they
+   chose here — and now that somebody can sign in with a key that
+   already has a kind 0 on the public relays, that is a collision
+   waiting rather than a hypothetical one.
+
+   Addressable, so the newest wins; the map tracks created_at to keep
+   an old one arriving late from clobbering a rename.
    ============================================================ */
 const profiles = new Map(); // pubkey -> { name, at }
 
@@ -1088,7 +1287,7 @@ async function sendJoinRequest(code) {
   sendEvent(event);
 }
 
-function finishJoin(fresh) {
+function finishJoin() {
   inviteCode = null;
   // The code is spent (or was never needed). A reload shouldn't
   // present it again, and a bookmark of this page shouldn't carry a
@@ -1100,10 +1299,6 @@ function finishJoin(fresh) {
   history.replaceState(null, "", location.pathname + location.search + (rest ? "#" + rest : ""));
   setStatus("connecting");
   subscribe();
-  if (fresh) {
-    namePromptEl.hidden = false;
-    nameInput.focus();
-  }
 }
 
 function refuseJoin(message) {
@@ -1115,30 +1310,25 @@ function refuseJoin(message) {
   ws.close();
 }
 
-/* ---------- publishing a name: the join prompt and the overlay share this ---------- */
+/* ---------- publishing a name: the landing screen and the overlay share this ---------- */
 async function publishProfileName(name) {
   profiles.set(identity.pubkey, { name, at: Math.floor(Date.now() / 1000) });
   applyProfile(identity.pubkey);
   const event = await finalizeEvent({
-    kind: KINDS.PROFILE,
-    tags: [["h", GROUP_ID]],
+    kind: KINDS.MEMBER,
+    // Both tags, and they carry the same value for different readers.
+    // `h` is what files this in the relay's members-only partition, the
+    // way every other event Hearth writes is filed. `d` is what makes
+    // the event addressable, which is the whole point of not being a
+    // kind 0: this name is keyed by the group as well as by the key
+    // that signed it, and a member's real nostr profile has nowhere to
+    // land on top of it.
+    tags: [["h", GROUP_ID], ["d", GROUP_ID]],
     content: JSON.stringify({ name }),
   });
   outbox.set(event.id, { kind: "profile", event });
   sendEvent(event);
 }
-
-function submitName() {
-  const name = nameInput.value.trim();
-  namePromptEl.hidden = true;
-  if (!name) return; // no name offered — the short pubkey stands in until they give one
-  publishProfileName(name);
-}
-
-nameSubmitBtn.addEventListener("click", submitName);
-nameInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") submitName();
-});
 
 /* ============================================================
    the relay's NIP-11 document: the room's name, and whether this

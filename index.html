@@ -477,6 +477,18 @@ input{font:inherit;color:inherit;background:none;border:none}
   padding:12px;border-radius:12px;font-weight:600;font-size:14px;
   background:linear-gradient(180deg,var(--ember),var(--ember-deep));color:#241205;
 }
+.npInner button:disabled{opacity:.4;cursor:default}
+/* The way in for somebody who already has an identity: offered under
+   the name field rather than beside it, because typing a name is what
+   almost everybody arriving here is going to do. */
+.npAlt{display:flex;justify-content:center}
+.npInner button.quiet{
+  background:none;color:var(--dim);font-weight:400;font-size:13px;
+  padding:6px;text-decoration:underline;text-underline-offset:3px;
+}
+.npInner button.quiet:disabled{opacity:.4}
+.npNote{font-size:12.5px;color:var(--faint)}
+.npFail{font-size:12.5px;line-height:1.5;color:var(--live)}
 
 @keyframes pulse{0%{transform:scale(.85);opacity:.9}70%{transform:scale(1.18);opacity:0}100%{transform:scale(1.18);opacity:0}}
 @keyframes flicker{0%,100%{opacity:.95;transform:translateX(-50%) scale(1)}40%{opacity:.75;transform:translateX(-50%) scale(.97)}70%{opacity:1;transform:translateX(-50%) scale(1.02)}}
@@ -504,16 +516,6 @@ input{font:inherit;color:inherit;background:none;border:none}
   <div id="joinRefused" class="setupPanel" hidden>
     <p>The relay said:</p>
     <p class="verbatim" id="joinRefusedMsg"></p>
-  </div>
-
-  <div id="signInOffer" class="setupPanel" hidden>
-    <p>This browser has a nostr signing extension. You can come in as the identity it holds, or
-      carry on as somebody new and let a key be made for you on this device.</p>
-    <div class="choiceRow">
-      <button id="signInExt">sign in with your extension</button>
-      <button id="signInNew" class="quiet">continue as somebody new</button>
-    </div>
-    <p class="panelFail" id="signInFail" hidden></p>
   </div>
 
   <div id="relaySetup" class="setupPanel" hidden>
@@ -645,7 +647,12 @@ input{font:inherit;color:inherit;background:none;border:none}
   <div class="npInner">
     <div class="npTitle">What should we call you?</div>
     <input id="nameInput" type="text" autocomplete="off" maxlength="40" placeholder="a name your friends know">
-    <button id="nameSubmit">join</button>
+    <button id="nameSubmit" disabled>join</button>
+    <div class="npAlt" id="landingExtRow" hidden>
+      <button id="landingExt" class="quiet">sign in with your extension instead</button>
+    </div>
+    <p class="npNote" id="landingNote" hidden></p>
+    <p class="npFail" id="landingFail" hidden></p>
   </div>
 </div>
 

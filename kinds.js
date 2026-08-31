@@ -1,17 +1,31 @@
 /* ============================================================
    Every nostr event kind hearth speaks, in one place. There are
-   eight now and there will be a couple of dozen once channels,
+   ten now and there will be a couple of dozen once channels,
    direct messages and device pairing land, so they live here
    rather than as bare numbers scattered through app.js.
    ============================================================ */
 const KINDS = {
-  // NIP-01 metadata. Hearth tags it into the group (an `h` tag),
-  // which files it in the relay's members-only partition — a name
-  // chosen for the group is readable by the group, not the world.
+  // NIP-01 metadata: a person's global nostr profile. Read only,
+  // and read for one thing — a name to fall back on when there is no
+  // kind 30078 to prefer. Hearth used to publish one of these per
+  // group, which is what MEMBER below replaced: a kind 0 is keyed by
+  // pubkey and kind alone, so the same person's real profile,
+  // arriving from anywhere else, took the group's copy's place.
   PROFILE: 0,
+
+  // NIP-78 application-specific data: how one person appears in one
+  // group. Addressable, so the relay keys it by (pubkey, kind, d),
+  // and the `d` names the group — one key can be called different
+  // things in two groups without either replacing the other.
+  MEMBER: 30078,
 
   // NIP-29 group chat message.
   CHAT: 9,
+
+  // NIP-65. Not a kind Hearth publishes or stores: it is read once,
+  // off the public relays, to find where somebody signing in with an
+  // extension keeps the profile their name is in.
+  RELAY_LIST: 10002,
 
   // NIP-29 moderation: the owner mints an invite code. Owner-only
   // on the relay side, and the stored event is withheld from even

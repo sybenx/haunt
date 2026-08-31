@@ -29,7 +29,12 @@ unusual path rather than the front door.
 ## Identity
 
 Identity is a nostr keypair, and the people using Hearth are not expected to know that. A
-new member's key is created for them silently when they first arrive.
+new member's key is created for them, and the one thing asked before it is made is what
+to call them. Somebody who already has a nostr identity says so on that same first screen
+and signs with the extension holding it, and Hearth then goes and reads the name they
+already publish rather than asking for it again. Nobody joins as a string of hex; the
+short pubkey that still appears is only ever a member whose name has not reached this
+device yet.
 
 A member moves their identity to a second device by showing a code on one screen and
 scanning it with the other. The code carries a temporary public key rather than the
@@ -126,7 +131,8 @@ to trust a service. What a group depends on is a relay one of them owns.
 Everything above describes where Hearth is going. Today, people can exchange chat
 messages and hear each other in a voice call through a bothy relay, and the way in
 exists: the owner mints invite links inside Hearth, a link redeems itself on arrival,
-and a new member is asked only what to call themselves. Read `index.html` and `app.js`
+and everybody who has no identity on the device lands on one screen that asks for a name
+or takes the one their signing extension already holds. Read `index.html` and `app.js`
 for what's actually wired up — this file won't be kept in sync with every feature as
 it lands. There is no channels, no direct messages, no QR device pairing, no video and
 no screen sharing, and a key still never leaves the browser it was created in. When a
