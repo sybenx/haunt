@@ -49,3 +49,10 @@ const KINDS = {
   // NIP-98 HTTP auth, for the relay's NIP-86 management API.
   HTTP_AUTH: 27235,
 };
+
+// The kinds a device-to-device key transfer speaks — the seal, the
+// gift wrap and the six rumors inside them — are deliberately not
+// here. They live in keyxfer.js, which implements a specification
+// written against no particular client and knows nothing about
+// hearth or about bothy: a transfer travels over public relays and
+// shares not one kind with anything above.

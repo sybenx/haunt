@@ -56,12 +56,23 @@ the room are not theirs to hold. See `reference/push.md` for the relay's half.
 
 A member moves their identity to a second device by showing a code on one screen and
 scanning it with the other. The code carries a temporary public key rather than the
-identity itself, so photographing it achieves nothing; the device that already holds the
-key approves the transfer and delivers the key over an encrypted message. Neither
-joining nor moving to a second device ever asks anyone to paste a secret into a box, in
-either direction. The one place a key is typed in is bringing an identity that already
-exists somewhere else, and that is something a person goes and finds behind the account
-icon rather than something Hearth asks them for.
+identity itself, so photographing it achieves nothing. Both screens then show the same
+four emoji, derived from both temporary keys and from a random number each device
+committed to before it saw the other's, and the person compares them; the device holding
+the key sends it only after its owner has read a line naming what the other device claims
+to be, and the device receiving it stores nothing until its owner agrees to the identity
+that arrived. The key travels as an encrypted message over public relays rather than over
+the group's own, because a bothy delivers that kind of message to its owner alone.
+Neither joining nor moving to a second device ever asks anyone to paste a secret into a
+box, in either direction. The one place a key is typed in is bringing an identity that
+already exists somewhere else, and that is something a person goes and finds behind the
+account icon rather than something Hearth asks them for.
+
+That transfer follows an outside specification rather than something invented here, so a
+key can move between Hearth and any other client that implements it. The specification
+lives in the nostr-key-management repository; `keyxfer.js` implements the part of it that
+carries a key between two devices, `keyxfer-vectors.json` holds the known answers a
+second implementation has to reproduce, and `vectors.html` checks them.
 
 ## What is private and what is not
 
@@ -151,11 +162,11 @@ messages and hear each other in a voice call through a bothy relay, and the way 
 exists: the owner mints invite links inside Hearth, a link redeems itself on arrival,
 and everybody who has no identity on the device lands on one screen that asks for a name
 or takes the one their signing extension already holds. Read `index.html` and `app.js`
-for what's actually wired up — this file won't be kept in sync with every feature as
-it lands. There is no channels, no direct messages, no QR device pairing, no video and
-no screen sharing, and a key still never leaves the browser it was created in. When a
-piece of the vision above ships, this paragraph should shrink, not grow with a list of
-what's still missing.
+for what's actually wired up — this file won't be kept in sync with every feature as it
+lands. An identity moves to a second device by QR, both flows of it. There is no
+channels, no direct messages, no video and no screen sharing. When a piece of the vision
+above ships, this paragraph should shrink, not grow with a list of what's still
+missing.
 
 ## Conventions
 

@@ -52,8 +52,32 @@ const nameInput = document.getElementById("nameInput");
 const nameSubmitBtn = document.getElementById("nameSubmit");
 const landingExtRowEl = document.getElementById("landingExtRow");
 const landingExtBtn = document.getElementById("landingExt");
+const landingDeviceBtn = document.getElementById("landingDevice");
 const landingNoteEl = document.getElementById("landingNote");
 const landingFailEl = document.getElementById("landingFail");
+const aoAddDeviceBtn = document.getElementById("aoAddDevice");
+const aoFromDeviceBtn = document.getElementById("aoFromDevice");
+const aoReceiveOnlyEl = document.getElementById("aoReceiveOnly");
+const aoAllowSendBtn = document.getElementById("aoAllowSend");
+const aoTransfersEl = document.getElementById("aoTransfers");
+const xferEl = document.getElementById("xfer");
+const xCloseBtn = document.getElementById("xClose");
+const xTitleEl = document.getElementById("xTitle");
+const xNoteEl = document.getElementById("xNote");
+const xPromptEl = document.getElementById("xPrompt");
+const xQrEl = document.getElementById("xQr");
+const xQrCanvas = document.getElementById("xQrCanvas");
+const xCamEl = document.getElementById("xCam");
+const xVideoEl = document.getElementById("xVideo");
+const xSasEl = document.getElementById("xSas");
+const xEmojiEl = document.getElementById("xEmoji");
+const xDigitsEl = document.getElementById("xDigits");
+const xListEl = document.getElementById("xList");
+const xMultiEl = document.getElementById("xMulti");
+const xButtonsEl = document.getElementById("xButtons");
+const xSpinEl = document.getElementById("xSpin");
+const xFailEl = document.getElementById("xFail");
+const xAltBtn = document.getElementById("xAlt");
 const newInviteBtn = document.getElementById("newInviteBtn");
 const inviteLinkRowEl = document.getElementById("inviteLinkRow");
 const inviteLinkTextEl = document.getElementById("inviteLinkText");
@@ -120,9 +144,9 @@ const aoConfirmNoBtn = document.getElementById("aoConfirmNo");
    on this origin can *use* the sealing key but can never read it
    out, so nothing that exfiltrates storage gets a usable key —
    which is as close to "the key never leaves this device" as a
-   plain page without hardware keys can get. The key still can't
-   be carried to a second device; QR pairing
-   (reference/client-mobile.html) is what will do that.
+   plain page without hardware keys can get. The one way a key
+   leaves is a transfer the person asks for and confirms on both
+   devices, which is keyxfer.js.
    ============================================================ */
 const IDB_NAME = "hearth";
 const IDB_STORE = "identity";
@@ -505,11 +529,27 @@ function landing() {
       nameInput.focus();
     };
 
+    // The third way in, and the only one that needs no name: this
+    // identity already exists on a device the person is holding, and
+    // the whole of what they have to do is show it a code. Nothing
+    // is minted down this path, so somebody who takes it never has a
+    // throwaway key to write over.
+    const fromOtherDevice = () => {
+      namePromptEl.hidden = true;
+      openTransfer("joiner", () => {
+        // Came back without a key, so the question this screen asks
+        // is still unanswered.
+        namePromptEl.hidden = false;
+        nameInput.focus();
+      });
+    };
+
     nameSubmitBtn.addEventListener("click", submitName);
     nameInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") submitName();
     });
     landingExtBtn.addEventListener("click", signIn);
+    landingDeviceBtn.addEventListener("click", fromOtherDevice);
   });
 }
 
@@ -657,8 +697,8 @@ function replacementWarning(bringing) {
   const losing = identity.kind === "extension"
     ? "Your extension keeps its own key, so nothing of yours is lost there."
     : "The key on this device now, " + shortName(identity.pubkey) + ", is written over and gone. " +
-      "There is no backup and no way to carry a key to another device yet, so it is gone for good " +
-      "unless you have saved it somewhere else.";
+      "It is gone for good unless another device already has it or you have saved it somewhere " +
+      "else.";
   return becoming + " " + losing;
 }
 
@@ -1276,8 +1316,8 @@ function renderAccountChrome() {
     ? "Your extension holds this identity's key, and hearth only ever asks it to sign. " +
       "Nothing here can read that key, save a copy of it, or carry it to another device."
     : "This key is your identity here and it signs everything you say. It stays on this " +
-      "device, sealed so that this page can use it but never read it out. There is no " +
-      "backup and no way to carry it to another device yet.";
+      "device, sealed so that this page can use it but never read it out. The one way it " +
+      "leaves is a transfer you start yourself and confirm on both devices.";
   aoExtBtn.hidden = !(hasExtension() && identity.kind !== "extension");
 }
 
@@ -2613,6 +2653,7 @@ function switchRelay(url) {
 
 function openAccount() {
   renderAccountChrome();
+  renderDeviceSection();
   aoNameInput.value = knownName(identity.pubkey) || "";
   renderNotifyChrome();
   aoPubkeyEl.textContent = identity.pubkey;
@@ -2978,6 +3019,558 @@ document.addEventListener("visibilitychange", () => {
 scrollEl.addEventListener("scroll", () => {
   if (!notLooking()) clearUnread();
 }, { passive: true });
+
+/* ============================================================
+   carrying this identity to another device
+
+   keyxfer.js is the protocol and knows nothing about hearth; this
+   is the screen in front of it. Two devices, one code, and two
+   deliberate taps: the person holding the key says send, and the
+   person receiving it says that the identity that turned up is
+   theirs. Neither tap is skippable, and the whole thing exists
+   because a key sealed on one device was, until now, a key that
+   could never be anywhere else.
+
+   Which device shows the code is a matter of which one has a
+   camera pointing the right way, so both ways round are here. The
+   one hearth offers first is the new device showing and the old
+   device scanning, because the old device is usually the phone.
+   ============================================================ */
+const RECEIVE_ONLY_KEY = "hearth:receive-only";
+const TRANSFERS_KEY = "hearth:transfers";
+const LOCK_KEY = "hearth:lock";
+
+// §8: a device given its key by another device does not pass it on
+// until the person says it may. One tap, nothing guarding it, and
+// said on the transfer screen rather than buried.
+function receiveOnly() {
+  return localStorage.getItem(RECEIVE_ONLY_KEY) === "1";
+}
+
+// §8: every transfer is written down where the person can see it,
+// so that one they did not make is something they can find out
+// about afterwards.
+function transferLog() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(TRANSFERS_KEY) || "[]");
+    return Array.isArray(stored) ? stored : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function recordTransfer(entry) {
+  const log = transferLog();
+  log.unshift(entry);
+  localStorage.setItem(TRANSFERS_KEY, JSON.stringify(log.slice(0, 20)));
+}
+
+function renderTransfers() {
+  aoTransfersEl.innerHTML = "";
+  for (const t of transferLog()) {
+    const row = document.createElement("div");
+    row.className = "xferItem";
+    const when = document.createElement("span");
+    when.className = "xferWhen";
+    when.textContent = new Date(t.ts * 1000).toLocaleDateString([], { month: "short", day: "numeric" });
+    const what = document.createElement("span");
+    what.textContent = t.role === "holder" ? "sent to a device" : "arrived from a device";
+    if (t.multi) what.textContent += ", and more than one device answered";
+    const code = document.createElement("span");
+    code.className = "xferCode";
+    code.textContent = t.sas || "";
+    row.append(when, what, code);
+    aoTransfersEl.appendChild(row);
+  }
+}
+
+/* ---------- the code, drawn and read ---------- */
+
+// Error correction level M, which is what stays readable on a
+// screen held at arm's length without making the code so dense
+// that a phone two years old cannot resolve it.
+function drawQr(canvas, text) {
+  const qr = qrcode(0, "M");
+  qr.addData(text);
+  qr.make();
+  const modules = qr.getModuleCount();
+  const quiet = 4; // the margin a scanner needs to find the edges
+  const scale = 4;
+  const size = (modules + quiet * 2) * scale;
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#f0e6d9";
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = "#0b0907";
+  for (let row = 0; row < modules; row++) {
+    for (let col = 0; col < modules; col++) {
+      if (qr.isDark(row, col)) {
+        ctx.fillRect((col + quiet) * scale, (row + quiet) * scale, scale, scale);
+      }
+    }
+  }
+}
+
+let camera = null; // { stream, raf }
+
+// jsQR rather than the browser's own BarcodeDetector, which Safari
+// does not have and Safari is the browser somebody adding an
+// iPhone is holding.
+async function startCamera(onText) {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: "environment" },
+    audio: false,
+  });
+  xVideoEl.srcObject = stream;
+  xVideoEl.setAttribute("playsinline", "");
+  await xVideoEl.play();
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  camera = { stream, raf: 0 };
+  const look = () => {
+    if (!camera) return;
+    camera.raf = requestAnimationFrame(look);
+    const w = xVideoEl.videoWidth, h = xVideoEl.videoHeight;
+    if (!w || !h) return;
+    canvas.width = w;
+    canvas.height = h;
+    ctx.drawImage(xVideoEl, 0, 0, w, h);
+    const found = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: "dontInvert" });
+    if (found && found.data) onText(found.data);
+  };
+  look();
+}
+
+function stopCamera() {
+  if (!camera) return;
+  cancelAnimationFrame(camera.raf);
+  for (const track of camera.stream.getTracks()) track.stop();
+  xVideoEl.srcObject = null;
+  camera = null;
+}
+
+/* ---------- the screen ---------- */
+let xfer = null;        // the running session
+let xferRole = null;    // "holder" | "joiner"
+let xferChosen = null;  // in flow A, the code the person tapped
+// What to do if this closes with nothing received, which is only
+// ever set when the transfer was opened from the landing screen and
+// there is no identity behind it to go back to.
+let xferOnClose = null;
+
+function xShow(el, on) { el.hidden = !on; }
+
+// One place that puts the screen into a state, so no state can
+// leave a control from the previous one lying about.
+function xRender(opts) {
+  xTitleEl.textContent = opts.title || "";
+  xNoteEl.textContent = opts.note || "";
+  xShow(xNoteEl, !!opts.note);
+  xPromptEl.textContent = opts.prompt || "";
+  xShow(xPromptEl, !!opts.prompt);
+  xShow(xQrEl, !!opts.qr);
+  xShow(xCamEl, !!opts.camera);
+  xShow(xSasEl, !!opts.sas);
+  if (opts.sas) {
+    xEmojiEl.textContent = opts.sas.emoji.join("");
+    xDigitsEl.textContent = opts.sas.digits;
+  }
+  xShow(xListEl, !!opts.list);
+  xListEl.innerHTML = "";
+  for (const entry of opts.list || []) {
+    const btn = document.createElement("button");
+    const em = document.createElement("div");
+    em.className = "xEmoji";
+    em.textContent = entry.sas.emoji.join("");
+    const dg = document.createElement("div");
+    dg.className = "xDigits";
+    dg.textContent = entry.sas.digits;
+    btn.append(em, dg);
+    btn.addEventListener("click", () => opts.onPick(entry));
+    xListEl.appendChild(btn);
+  }
+  xButtonsEl.innerHTML = "";
+  for (const b of opts.buttons || []) {
+    const btn = document.createElement("button");
+    btn.textContent = b.label;
+    if (b.quiet) btn.className = "quiet";
+    btn.addEventListener("click", b.onClick);
+    xButtonsEl.appendChild(btn);
+  }
+  xSpinEl.textContent = opts.waiting || "";
+  xShow(xSpinEl, !!opts.waiting);
+  xShow(xFailEl, false);
+  if (opts.alt) {
+    xAltBtn.textContent = opts.alt.label;
+    xAltBtn.onclick = opts.alt.onClick;
+  }
+  xShow(xAltBtn, !!opts.alt);
+}
+
+function xFail(message) {
+  xFailEl.textContent = message;
+  xShow(xFailEl, true);
+}
+
+function closeTransfer() {
+  stopCamera();
+  if (xfer) xfer.cancel();
+  xfer = null;
+  xferChosen = null;
+  xShow(xMultiEl, false);
+  xferEl.hidden = true;
+  const after = xferOnClose;
+  xferOnClose = null;
+  if (after) after();
+}
+
+xCloseBtn.addEventListener("click", closeTransfer);
+
+/* ---------- starting one ---------- */
+
+// §3.1: find out whether a relay can be reached before showing a
+// code that could never complete. A browser has no local network
+// path, so a device that reaches nothing has nowhere to send a key
+// and is told so.
+async function withRelays(then) {
+  xRender({ title: "add a device", waiting: "connecting" });
+  const reachable = await Keyxfer.probeRelays(Keyxfer.DEFAULT_RELAYS);
+  if (reachable.length === 0) {
+    xRender({
+      title: "add a device",
+      note: "Hearth couldn't reach any of the relays a transfer travels over. This needs a " +
+        "working connection on both devices.",
+      buttons: [{ label: "try again", onClick: () => withRelays(then) }],
+    });
+    return;
+  }
+  then(reachable);
+}
+
+function openTransfer(role, onClose) {
+  xferRole = role;
+  xferChosen = null;
+  xferOnClose = onClose || null;
+  accountOverlayEl.hidden = true;
+  xferEl.hidden = false;
+  xShow(xMultiEl, false);
+
+  if (role === "holder") {
+    // A key held by an extension is a key this page has never seen
+    // and cannot send. Said plainly rather than by a button that
+    // fails when pressed.
+    if (!identity.holdsPrivateKey) {
+      xRender({
+        title: "add a device",
+        note: "Your extension holds this identity's key and hearth only ever asks it to sign, " +
+          "so there is no key here to send. Add the other device from your extension instead.",
+        buttons: [{ label: "close", onClick: closeTransfer }],
+      });
+      return;
+    }
+    if (receiveOnly()) {
+      xRender({
+        title: "add a device",
+        note: "This device was given its key by another device, so it doesn't send it on " +
+          "until you say it may.",
+        buttons: [
+          { label: "allow sending from this device", onClick: () => { allowSending(); openTransfer("holder"); } },
+          { label: "not now", quiet: true, onClick: closeTransfer },
+        ],
+      });
+      return;
+    }
+  }
+
+  withRelays((relays) => {
+    // The offer hearth makes first: the new device shows a code and
+    // the device that already has the key scans it. The other way
+    // round is one tap away, for a pair whose cameras are the wrong
+    // way round.
+    if (role === "holder") beginScanning(relays);
+    else beginShowing(relays);
+  });
+}
+
+function beginShowing(relays) {
+  stopCamera();
+  const showing = xferRole === "joiner";
+  // The screen is put up before the session starts, because the
+  // session hands back its code the moment it has one and a render
+  // after that would clear the canvas it was just drawn on.
+  xRender({
+    title: showing ? "your new device" : "add a device",
+    note: showing
+      ? "Scan this with the device that already has your identity."
+      : "Scan this with the device you're adding.",
+    waiting: "waiting for your other device",
+    alt: {
+      label: "scan the code it shows instead",
+      onClick: () => { if (xfer) xfer.cancel(); withRelays(beginScanning); },
+    },
+  });
+  xfer = Keyxfer.startSession({
+    role: xferRole,
+    showing: true,
+    relays,
+    on: onTransferEvent,
+  });
+}
+
+function beginScanning(relays) {
+  xRender({
+    title: xferRole === "holder" ? "add a device" : "your new device",
+    note: "Point this at the code on your other device.",
+    camera: true,
+    waiting: "looking for a code",
+    alt: {
+      label: "show a code instead",
+      onClick: () => { stopCamera(); withRelays(beginShowing); },
+    },
+  });
+  let taken = false;
+  startCamera((text) => {
+    if (taken) return;
+    let scanned;
+    try {
+      scanned = Keyxfer.parseUri(text);
+    } catch (err) {
+      xFail(err.message);
+      return;
+    }
+    // A code offering what this device is offering is the other
+    // device in the same role, which is nobody's transfer.
+    const wantMode = xferRole === "holder" ? "offer" : "request";
+    if (scanned.mode !== wantMode) {
+      xFail("that code is from a device in the same position as this one, so neither of you " +
+        "would be receiving anything");
+      return;
+    }
+    taken = true;
+    stopCamera();
+    xfer = Keyxfer.startSession({
+      role: xferRole,
+      showing: false,
+      scanned,
+      on: onTransferEvent,
+    });
+    xRender({
+      title: xferRole === "holder" ? "add a device" : "your new device",
+      waiting: "connecting",
+    });
+  }).catch((err) => {
+    xRender({
+      title: xferRole === "holder" ? "add a device" : "your new device",
+      note: "Hearth couldn't use the camera on this device: " + err.message,
+      buttons: [{ label: "show a code instead", onClick: () => withRelays(beginShowing) }],
+    });
+  });
+}
+
+/* ---------- what the session says, and what the screen does ---------- */
+async function onTransferEvent(type, data) {
+  if (type === "qr") {
+    drawQr(xQrCanvas, data);
+    xShow(xQrEl, true);
+    return;
+  }
+
+  // §3.8. A notice rather than a refusal: the code on the two
+  // screens is what settles which device is the real one, and this
+  // says only that somebody else pointed a camera at it.
+  if (type === "multi") {
+    xMultiEl.textContent = "Another device also responded to this code. If that wasn't you, " +
+      "someone nearby may have scanned it. Nothing was shared with them.";
+    xShow(xMultiEl, true);
+    return;
+  }
+
+  // §4 step 9 and §5 step 11: the tap that releases the key. The
+  // line naming what the other side claims to be is the only
+  // defence against a page that is itself pretending to be the
+  // device being added, which the code comparison cannot catch.
+  if (type === "consent") {
+    const claim = data.origin
+      ? "a browser at " + data.origin
+      : (data.plat ? "a " + data.plat + " device" : "a device");
+    xRender({
+      title: "add a device",
+      prompt: "Send your key to " + claim + " showing this?",
+      sas: data.sas,
+      note: "Check that these four emoji and these six digits are what your other device is " +
+        "showing. If they aren't, this isn't your device.",
+      buttons: [
+        { label: "send my key", onClick: () => sendKey(data) },
+        { label: "not mine", quiet: true, onClick: () => xfer && xfer.deny(data.peer) },
+      ],
+    });
+    return;
+  }
+
+  // The receiving side, waiting. In flow B there is exactly one
+  // device this could be, because this device scanned its code; in
+  // flow A anybody may have scanned ours, so the codes are a list
+  // and the person picks the one their other device is showing.
+  if (type === "sas") {
+    if (data.single) {
+      xRender({
+        title: "your new device",
+        note: "Your other device should be showing this. Approve it there.",
+        sas: data.list[0].sas,
+        waiting: "waiting for your other device",
+      });
+    } else {
+      xRender({
+        title: "your new device",
+        prompt: "Tap the code your other device shows",
+        list: data.list,
+        onPick: (entry) => { xferChosen = entry.peer; offerLogin(entry.peer); },
+      });
+    }
+    return;
+  }
+
+  if (type === "arrived") {
+    if (data.single || xferChosen === data.peer) offerLogin(data.peer);
+    return;
+  }
+
+  if (type === "sent") {
+    recordTransfer({
+      ts: Math.floor(Date.now() / 1000),
+      role: "holder",
+      rung: "relay",
+      sas: data.sas.emoji.join("") + " " + data.sas.digits,
+      peer: data.peer,
+      multi: false,
+    });
+    xRender({
+      title: "add a device",
+      note: "Your key is on its way. Your other device will ask you to confirm who you are " +
+        "before it keeps it.",
+      sas: data.sas,
+      waiting: "waiting for your other device",
+    });
+    return;
+  }
+
+  if (type === "waiting") {
+    xRender({ title: "add a device", waiting: "waiting for your other device" });
+    return;
+  }
+
+  if (type === "done") {
+    if (xferRole === "holder") {
+      xRender({
+        title: "add a device",
+        note: "Your other device has your identity now.",
+        buttons: [{ label: "close", onClick: closeTransfer }],
+      });
+    }
+    return;
+  }
+
+  if (type === "expired") {
+    stopCamera();
+    xRender({
+      title: xferRole === "holder" ? "add a device" : "your new device",
+      note: "That took longer than ten minutes, so the code is no longer good. Nothing was sent.",
+      buttons: [{ label: "start again", onClick: () => openTransfer(xferRole) }],
+    });
+    return;
+  }
+
+  if (type === "error") {
+    xFail(data);
+    return;
+  }
+}
+
+async function sendKey(data) {
+  xRender({ title: "add a device", sas: data.sas, waiting: "sending" });
+  await xfer.approve(data.peer, S.utils.bytesToHex(identity.privkey), "device");
+}
+
+// §4 steps 14 and 15, §5 step 16: the key is in hand and still not
+// stored. The person is shown who it would make them, because a key
+// that arrived from somebody else's device is a login somebody else
+// chose, and the name is the part of it they can recognise.
+async function offerLogin(peerHex) {
+  const who = xfer.chosen(peerHex);
+  if (!who) {
+    xRender({ title: "your new device", waiting: "waiting for your other device" });
+    return;
+  }
+  xRender({ title: "your new device", waiting: "checking who that is" });
+  const name = await lookupNostrName(who.pubkey).catch(() => null);
+  const called = name || shortName(who.pubkey);
+  // A device that arrived here from the landing screen has no
+  // identity of its own to lose, and telling it that something is
+  // about to be written over would be a lie.
+  let note = "";
+  if (identity && identity.holdsPrivateKey) {
+    note = "This takes the place of the identity this device is using now, " +
+      shortName(identity.pubkey) + ", which is written over and gone.";
+  } else if (identity) {
+    note = "This takes the place of the identity this device is using now.";
+  }
+  xRender({
+    title: "your new device",
+    prompt: "Log in as " + called + "?",
+    note,
+    buttons: [
+      { label: "log in", onClick: () => keepReceivedKey(peerHex) },
+      { label: "no", quiet: true, onClick: closeTransfer },
+    ],
+  });
+}
+
+async function keepReceivedKey(peerHex) {
+  xRender({ title: "your new device", waiting: "keeping it" });
+  const record = await xfer.accept(peerHex);
+  if (!record) {
+    xFail("that key is no longer being offered");
+    return;
+  }
+  await storeSealedPrivkey(S.utils.hexToBytes(record.privkeyHex));
+  localStorage.removeItem(SIGNER_CHOICE_KEY);
+  // §2.2's unlock setting travels with the key. Hearth has one
+  // behaviour today, the default, and stores what arrived so that
+  // the setting is not lost by the device that carried it.
+  localStorage.setItem(LOCK_KEY, record.lock || "device");
+  // §8: a device that was given its key does not hand it on until
+  // its owner says it may.
+  localStorage.setItem(RECEIVE_ONLY_KEY, "1");
+  recordTransfer({
+    ts: Math.floor(Date.now() / 1000),
+    role: "joiner",
+    rung: "relay",
+    sas: record.sas.emoji.join("") + " " + record.sas.digits,
+    peer: record.peer,
+    multi: record.multi,
+  });
+  // A reload rather than a swap in place, for the reason importing a
+  // key reloads: everything on screen belongs to the identity that
+  // was signing a moment ago.
+  location.reload();
+}
+
+function allowSending() {
+  localStorage.removeItem(RECEIVE_ONLY_KEY);
+  renderDeviceSection();
+}
+
+function renderDeviceSection() {
+  const only = receiveOnly();
+  aoReceiveOnlyEl.hidden = !only;
+  aoAllowSendBtn.hidden = !only;
+  renderTransfers();
+}
+
+aoAddDeviceBtn.addEventListener("click", () => openTransfer("holder"));
+aoFromDeviceBtn.addEventListener("click", () => openTransfer("joiner"));
+aoAllowSendBtn.addEventListener("click", allowSending);
 
 /* ============================================================
    startup
