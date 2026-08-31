@@ -37,11 +37,13 @@ short pubkey that still appears is only ever a member whose name has not reached
 device yet.
 
 The name a person goes by in the group is theirs to choose and is not their nostr
-profile. Hearth reads that profile once, to save somebody arriving with an identity from
-typing a name they have already published, and then leaves it alone in both directions:
-it never writes to it, and a name changed in the group is never reverted by a profile
-updated somewhere else. The group's copy lives in an event scoped to the group, so one
-key can be called different things in two of them.
+profile. Somebody arriving with an identity is never asked to type a name they have
+already published: hearth reads that profile, uses what it finds, and goes on reading it,
+so a name changed out there changes here too. That lasts exactly as long as the name here
+is a default. The moment somebody names themselves in the group it is a decision, hearth
+stops looking, and nothing they chose is ever taken back by a profile updated somewhere
+else. It never writes to the profile in either case, and the group's copy lives in an
+event scoped to the group, so one key can be called different things in two of them.
 
 A member moves their identity to a second device by showing a code on one screen and
 scanning it with the other. The code carries a temporary public key rather than the

@@ -418,7 +418,7 @@ async function lookupNostrName(pubkey) {
    not minting a key, and a group profile, for somebody who already
    has an identity and only wants to use it here.
    ============================================================ */
-let pendingName = null; // a name given before there was a relay to publish it to
+let pendingName = null; // { name, seeded } settled before there was a relay to publish it to
 
 function landing() {
   return new Promise((resolve) => {
@@ -443,7 +443,7 @@ function landing() {
     const submitName = async () => {
       const name = nameInput.value.trim();
       if (!name) return;
-      pendingName = name;
+      pendingName = { name, seeded: false }; // typed here, so it is a decision
       if (signedIn) {
         enter(signedIn);
         return;
@@ -475,7 +475,9 @@ function landing() {
       const found = await lookupNostrName(signer.pubkey);
       landingNoteEl.hidden = true;
       if (found) {
-        pendingName = found;
+        // Their own profile's name, taken on their behalf. It stays a
+        // default, tracking that profile, until they rename here.
+        pendingName = { name: found, seeded: true };
         enter(signer);
         return;
       }
@@ -933,9 +935,12 @@ function subscribe() {
   // wants AUTH first refuses the name, and the outbox sends it again
   // once the auth lands.
   if (pendingName) {
-    const name = pendingName;
+    const { name, seeded } = pendingName;
     pendingName = null;
-    publishMemberName(name);
+    // The landing screen asked the public relays a moment ago, so the
+    // refresh at EOSE has nothing left to learn this time round.
+    seedRefreshed = true;
+    publishMemberName(name, { seeded });
   }
 }
 
@@ -957,6 +962,7 @@ async function handleFrame(frame, relayUrl, epoch) {
       setStatus("connected", "lit");
     }
     seedNameFromProfile();
+    refreshSeededName();
     return;
   }
 
@@ -1144,6 +1150,14 @@ function initials(pubkey) {
 // than a bare string is for what comes next: what somebody looks like
 // in a room is the thing most likely to grow a second field, and a
 // second field beats a second kind.
+function seededFlag(event) {
+  try {
+    return JSON.parse(event.content).seeded === true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function recordName(map, event) {
   let name;
   try {
@@ -1154,7 +1168,7 @@ function recordName(map, event) {
   if (typeof name !== "string" || name.trim() === "") return;
   const existing = map.get(event.pubkey);
   if (existing && existing.at >= event.created_at) return;
-  map.set(event.pubkey, { name: name.trim(), at: event.created_at });
+  map.set(event.pubkey, { name: name.trim(), at: event.created_at, seeded: seededFlag(event) });
   applyName(event.pubkey);
 }
 
@@ -1173,7 +1187,47 @@ function seedNameFromProfile() {
   if (!identity || memberNames.has(identity.pubkey)) return;
   const profile = profileNames.get(identity.pubkey);
   if (!profile) return;
+  // Carried across, not seeded. This kind 0 is one hearth wrote itself
+  // back when a group name was a kind 0, so the name in it is one this
+  // person chose for this room — a decision arriving late, and not
+  // something the refresh below is entitled to overwrite.
   publishMemberName(profile.name, { quiet: true });
+}
+
+/* ------------------------------------------------------------
+   A name taken from somebody's own nostr profile is a default, and
+   a default that never moves is just a stale copy. So on every load
+   the profile is asked again, and a name changed out there lands
+   here too.
+
+   Only while the name here is still a seed. The moment somebody
+   types one of their own it carries no flag, this steps over it, and
+   nothing they chose is ever taken back — which is the same promise
+   seeding makes, held for as long as the seed lasts rather than only
+   until the second load.
+
+   This is also what rescues somebody signed in with an extension who
+   has no name here at all: the lookup lives on the landing screen,
+   the landing screen does not run for a signer already chosen, and
+   without this they would go on being eight characters of hex with
+   nothing anywhere going to look.
+   ------------------------------------------------------------ */
+let seedRefreshed = false;
+
+async function refreshSeededName() {
+  if (!identity || seedRefreshed) return;
+  const before = memberNames.get(identity.pubkey);
+  if (before && !before.seeded) return;
+  seedRefreshed = true;
+  const found = await lookupNostrName(identity.pubkey);
+  if (!found) return;
+  // Four public relays take a moment, and a name can be typed or a
+  // relay switched inside it. Whatever is true now decides, and an
+  // event that would say exactly what the last one said is not worth
+  // sending.
+  const now = memberNames.get(identity.pubkey);
+  if (now && (!now.seeded || now.name === found)) return;
+  publishMemberName(found, { seeded: true, quiet: true });
 }
 
 // Message rows already on screen were rendered before this name
@@ -1374,7 +1428,8 @@ function refuseJoin(message) {
 // one failing is not, because the kind 0 it came from goes on standing
 // in and there is nothing for anyone to do about it.
 async function publishMemberName(name, opts) {
-  memberNames.set(identity.pubkey, { name, at: Math.floor(Date.now() / 1000) });
+  const seeded = !!(opts && opts.seeded);
+  memberNames.set(identity.pubkey, { name, at: Math.floor(Date.now() / 1000), seeded });
   applyName(identity.pubkey);
   const event = await finalizeEvent({
     kind: KINDS.MEMBER,
@@ -1386,7 +1441,12 @@ async function publishMemberName(name, opts) {
     // signed it, and a member's real nostr profile has nowhere to land
     // on top of it.
     tags: [["h", GROUP_ID], ["d", MEMBER_D]],
-    content: JSON.stringify({ name }),
+    // seeded says where the name came from, and it is the difference
+    // between a default and a decision. A seeded name is one hearth
+    // took from this person's own nostr profile on their behalf, and
+    // it goes on tracking that profile. A name somebody typed carries
+    // no flag and is never touched again.
+    content: JSON.stringify(seeded ? { name, seeded: true } : { name }),
   });
   outbox.set(event.id, { kind: "name", event, quiet: !!(opts && opts.quiet) });
   sendEvent(event);
