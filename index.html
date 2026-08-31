@@ -569,6 +569,13 @@ input{font:inherit;color:inherit;background:none;border:none}
    is still connecting looks exactly like one that never will for the
    first few seconds, and the difference is worth waiting to know. */
 .xSlow{font-size:12px;line-height:1.55;color:var(--dim);max-width:30ch}
+/* Whether this device may pass the key on is a thing about the
+   device, so it is shown as one: always there, saying which way it is
+   set, and turnable both ways. It used to be a button that vanished
+   when pressed, which left somebody with no way to tell whether it
+   had worked and no way back. */
+.sendState{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.sendState .secNote{margin:0 0 8px}
 /* One line per past transfer, in the same shape as the relay rows
    above it, because it is the same kind of list: a short record of
    something this device did. */
@@ -697,10 +704,11 @@ input{font:inherit;color:inherit;background:none;border:none}
       <div class="secNote">Put this identity on another phone, tablet or computer. The other
         device shows a code, you scan it, and you both check that the same four emoji came
         up before your key moves.</div>
-      <div class="secNote" id="aoReceiveOnly" hidden>This device was given its key by another
-        device, so it doesn't send it on by default.</div>
-      <button class="pillBtn" id="aoAllowSend" hidden>allow sending from this device</button>
       <button class="pillBtn" id="aoAddDevice">add a device</button>
+      <div class="sendState">
+        <div class="secNote" id="aoReceiveOnly"></div>
+        <button class="pillBtn" id="aoAllowSend"></button>
+      </div>
       <div class="relayList" id="aoTransfers"></div>
     </div>
 

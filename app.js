@@ -3235,6 +3235,37 @@ function renderTransfers() {
    refused by the same line of code. */
 const PAIR_PARAM = "pair";
 
+// The inverse of pairingLink, and the only thing in hearth that
+// decides what a device code looks like. Both readers go through it:
+// the scanner pointing a camera at a screen, and the page that was
+// opened by following one. They disagreed once — the code became a
+// link and only the page-load half was taught to read it, so hearth
+// refused the code hearth had just drawn — and one function is what
+// stops that being possible rather than unlikely.
+//
+// Takes a link, a whole page URL, or a bare pairing URI, and returns
+// the pairing URI inside it. What that URI has to contain is not this
+// function's business: it hands the string to the parser the
+// specification is written about, unchanged.
+function innerPairingUri(text) {
+  const trimmed = (text || "").trim();
+  if (trimmed.startsWith("nostr+keyxfer://")) return trimmed;
+  let url;
+  try {
+    url = new URL(trimmed);
+  } catch (err) {
+    throw new Error("that code isn't a hearth device code");
+  }
+  const inner = new URLSearchParams(url.hash.slice(1)).get(PAIR_PARAM);
+  if (!inner) throw new Error("that code isn't a hearth device code");
+  return inner;
+}
+
+// The pairing a code names, or a refusal somebody can read.
+function readPairingCode(text) {
+  return Keyxfer.parseUri(innerPairingUri(text));
+}
+
 function isLoopback(host) {
   return host === "localhost" || host === "127.0.0.1" || host === "[::1]" ||
     host === "::1" || host === "0.0.0.0" || host.endsWith(".localhost");
@@ -3341,7 +3372,20 @@ function stopCamera() {
    inside it and a warning that retracts itself teaches people to
    ignore warnings. */
 const TRANSPORT_QUIET_MS = 12000;   // before this, say nothing
-const TRANSPORT_TROUBLE_MS = 45000; // after this, say it plainly
+// Thirty seconds, because by then a relay that is going to open has
+// had five attempts at it under the backoff above, and the slowest
+// cold connection seen was a few seconds. Sooner than this and the
+// ordinary case gets a warning it does not need; later and somebody
+// is watching a spinner with nothing to act on. It is also a
+// twentieth of the session, so acting on it costs nothing: the
+// retrying carries on behind whatever the screen says.
+const TRANSPORT_TROUBLE_MS = 30000;
+// A device that scanned has said hello and is waiting to be answered.
+// That is a different silence — the connection is fine and the other
+// device is not there, most likely because its code has already been
+// used or its screen has moved on — and it deserves longer before
+// being called, because the other person may be reading a prompt.
+const PEER_SILENCE_MS = 60000;
 
 let transportTimer = null;
 
@@ -3362,26 +3406,74 @@ function recordTransport(health) {
   }
 }
 
+// Whatever this screen is waiting for, it says so, and past a point
+// it offers a way out. A session runs for ten minutes and goes on
+// retrying underneath, but nobody should be made to watch a spinner
+// that neither explains itself nor can be acted on: the three-second
+// failure this replaced was wrong because it gave up too early, not
+// because giving somebody a button was wrong.
 function watchTransport() {
   clearInterval(transportTimer);
   const startedAt = Date.now();
+  let offered = false;
   transportTimer = setInterval(() => {
     if (!xfer) { clearInterval(transportTimer); return; }
     const health = xfer.transport();
     if (!health) return;
     const waited = Date.now() - startedAt;
-    if (health.live > 0) {
+    const answered = xfer.peers().length > 0;
+
+    let message = null;
+    let actionable = false;
+    if (health.live === 0) {
+      if (waited >= TRANSPORT_TROUBLE_MS) {
+        message = "Hearth still hasn't got a connection. It keeps trying, so this may come " +
+          "good on its own, and starting again is worth a go if it doesn't.";
+        actionable = true;
+        recordTransport(health);
+      } else if (waited >= TRANSPORT_QUIET_MS) {
+        message = "still connecting";
+      }
+    } else if (xferScanned && !answered && waited >= PEER_SILENCE_MS) {
+      // Connected, said hello, and nothing came back.
+      message = "Your other device hasn't answered. Its code may already have been used, in " +
+        "which case showing a fresh one there and scanning again is what fixes it.";
+      actionable = true;
+      recordTransport(health);
+    }
+
+    if (!message) {
       xShow(xTransportEl, false);
       return;
     }
-    if (waited < TRANSPORT_QUIET_MS) return;
-    xTransportEl.textContent = waited < TRANSPORT_TROUBLE_MS
-      ? "still connecting"
-      : "Hearth hasn't got a connection yet. It keeps trying for as long as this code is " +
-        "up, so leave it open if your connection is slow.";
+    xTransportEl.textContent = message;
     xShow(xTransportEl, true);
-    if (waited >= TRANSPORT_TROUBLE_MS) recordTransport(health);
+    // Added beside whatever the screen already offers rather than
+    // replacing it, and only once, so it does not flicker under a
+    // thumb every second.
+    if (actionable && !offered) {
+      offered = true;
+      const again = document.createElement("button");
+      again.textContent = "start again";
+      again.addEventListener("click", retryTransfer);
+      xButtonsEl.appendChild(again);
+    }
   }, 1000);
+}
+
+// The same thing this screen was doing, from the beginning, with
+// fresh burners. A session that never reached a relay has nothing to
+// lose by being replaced, and one whose code was already spent needs
+// to be.
+function retryTransfer() {
+  clearInterval(transportTimer);
+  xShow(xTransportEl, false);
+  const scanned = xferScanned;
+  if (xfer) xfer.cancel();
+  xfer = null;
+  if (scanned) beginScanned(scanned);
+  else if (xferShowing) beginShowing();
+  else beginScanning();
 }
 
 let xfer = null;        // the running session
@@ -3391,6 +3483,11 @@ let xferChosen = null;  // in flow A, the code the person tapped
 // ever set when the transfer was opened from the landing screen and
 // there is no identity behind it to go back to.
 let xferOnClose = null;
+// What this screen was doing, so that starting again can do it again:
+// the code this device scanned, if it scanned one, and whether it is
+// the device showing a code.
+let xferScanned = null;
+let xferShowing = false;
 // Where the room is, as told by each device offering a key, kept
 // beside the key itself until one of them is accepted.
 const xferRelays = new Map();
@@ -3452,6 +3549,8 @@ function xFail(message) {
 function closeTransfer() {
   stopCamera();
   clearInterval(transportTimer);
+  xferScanned = null;
+  xferShowing = false;
   xShow(xTransportEl, false);
   if (xfer) recordTransport(xfer.transport());
   if (xfer) xfer.cancel();
@@ -3477,10 +3576,10 @@ xCloseBtn.addEventListener("click", closeTransfer);
    has to be guessed from what this device happens to hold.
    ============================================================ */
 function pendingPairing() {
-  const raw = parseFragment().get(PAIR_PARAM);
-  if (!raw) return null;
+  if (!parseFragment().get(PAIR_PARAM)) return null;
   try {
-    const scanned = Keyxfer.parseUri(raw);
+    // The whole address, through the same reader the camera uses.
+    const scanned = readPairingCode(location.href);
     return { scanned, role: scanned.mode === "offer" ? "holder" : "joiner" };
   } catch (err) {
     // An unreadable or unknown-version code. Kept rather than
@@ -3563,7 +3662,7 @@ function openTransfer(role, onClose) {
         note: "This device was given its key by another device, so it doesn't send it on " +
           "until you say it may.",
         buttons: [
-          { label: "allow sending from this device", onClick: () => { allowSending(); openTransfer("holder"); } },
+          { label: "allow sending from this device", onClick: () => { setReceiveOnly(false); openTransfer("holder"); } },
           { label: "not now", quiet: true, onClick: closeTransfer },
         ],
       });
@@ -3580,6 +3679,8 @@ function openTransfer(role, onClose) {
 
 function beginShowing() {
   stopCamera();
+  xferScanned = null;
+  xferShowing = true;
   const showing = xferRole === "joiner";
   // The screen is put up before the session starts, because the
   // session hands back its code the moment it has one and a render
@@ -3608,6 +3709,8 @@ function beginShowing() {
 // carried in the fragment of a link the phone's own camera app opened.
 // From here the two are the same transfer.
 function beginScanned(scanned) {
+  xferScanned = scanned;
+  xferShowing = false;
   const title = xferRole === "holder" ? "add a device" : "your new device";
   xRender({ title, waiting: "connecting" });
   // Started rather than gated. The relays that matter here are the
@@ -3624,6 +3727,8 @@ function beginScanned(scanned) {
 }
 
 function beginScanning() {
+  xferScanned = null;
+  xferShowing = false;
   xRender({
     title: xferRole === "holder" ? "add a device" : "your new device",
     note: "Point this at the code on your other device.",
@@ -3639,7 +3744,7 @@ function beginScanning() {
     if (taken) return;
     let scanned;
     try {
-      scanned = Keyxfer.parseUri(text);
+      scanned = readPairingCode(text);
     } catch (err) {
       xFail(err.message);
       return;
@@ -3916,21 +4021,33 @@ async function keepReceivedKey(peerHex) {
   location.reload();
 }
 
-function allowSending() {
-  localStorage.removeItem(RECEIVE_ONLY_KEY);
+// §8's receive-only setting, both ways. A device given its key by
+// another starts out unable to pass it on, and this is what lifts
+// that and what puts it back. Unguarded by design: the specification
+// asks for one tap, and the thing being guarded is a device that
+// already holds the key.
+function setReceiveOnly(only) {
+  if (only) localStorage.setItem(RECEIVE_ONLY_KEY, "1");
+  else localStorage.removeItem(RECEIVE_ONLY_KEY);
   renderDeviceSection();
 }
 
 function renderDeviceSection() {
   const only = receiveOnly();
-  aoReceiveOnlyEl.hidden = !only;
-  aoAllowSendBtn.hidden = !only;
+  // The state first, then the control that changes it, so what the
+  // button does is read in the light of what is true now.
+  aoReceiveOnlyEl.textContent = only
+    ? "This device was given its key by another device, so it doesn't send it on."
+    : "This device can send your key to another device.";
+  aoAllowSendBtn.textContent = only
+    ? "allow sending from this device"
+    : "stop sending from this device";
   renderTransfers();
 }
 
 aoAddDeviceBtn.addEventListener("click", () => openTransfer("holder"));
 aoFromDeviceBtn.addEventListener("click", () => openTransfer("joiner"));
-aoAllowSendBtn.addEventListener("click", allowSending);
+aoAllowSendBtn.addEventListener("click", () => setReceiveOnly(!receiveOnly()));
 
 /* ============================================================
    startup
