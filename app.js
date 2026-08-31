@@ -83,6 +83,7 @@ const xListEl = document.getElementById("xList");
 const xMultiEl = document.getElementById("xMulti");
 const xButtonsEl = document.getElementById("xButtons");
 const xSpinEl = document.getElementById("xSpin");
+const xTransportEl = document.getElementById("xTransport");
 const xFailEl = document.getElementById("xFail");
 const xAltBtn = document.getElementById("xAlt");
 const newInviteBtn = document.getElementById("newInviteBtn");
@@ -3326,6 +3327,63 @@ function stopCamera() {
 }
 
 /* ---------- the screen ---------- */
+/* ---------- how the connection is getting on ----------
+
+   The session no longer decides once whether a relay can be reached;
+   it keeps trying for its whole ten minutes. So the screen's job is
+   to say that it is still working, and to say that it is not getting
+   anywhere only when that has been true for long enough to mean
+   something. Three seconds of silence is what a cold connection to a
+   public relay looks like on a phone; a minute of it is a problem.
+
+   The thresholds below are deliberately far apart. Nothing is said at
+   all for the first stretch, because the ordinary case resolves
+   inside it and a warning that retracts itself teaches people to
+   ignore warnings. */
+const TRANSPORT_QUIET_MS = 12000;   // before this, say nothing
+const TRANSPORT_TROUBLE_MS = 45000; // after this, say it plainly
+
+let transportTimer = null;
+
+// Kept where it can be read after the fact. Somebody reporting that a
+// transfer would not start can be asked for this, and it names which
+// relay was slow and by how much rather than leaving it to memory.
+function recordTransport(health) {
+  if (!health) return;
+  try {
+    localStorage.setItem("hearth:last-transport", JSON.stringify({
+      at: Math.floor(Date.now() / 1000),
+      elapsedMs: health.elapsedMs,
+      live: health.live,
+      relays: health.relays,
+    }));
+  } catch (err) {
+    // A full or blocked store costs a diagnostic, not a transfer.
+  }
+}
+
+function watchTransport() {
+  clearInterval(transportTimer);
+  const startedAt = Date.now();
+  transportTimer = setInterval(() => {
+    if (!xfer) { clearInterval(transportTimer); return; }
+    const health = xfer.transport();
+    if (!health) return;
+    const waited = Date.now() - startedAt;
+    if (health.live > 0) {
+      xShow(xTransportEl, false);
+      return;
+    }
+    if (waited < TRANSPORT_QUIET_MS) return;
+    xTransportEl.textContent = waited < TRANSPORT_TROUBLE_MS
+      ? "still connecting"
+      : "Hearth hasn't got a connection yet. It keeps trying for as long as this code is " +
+        "up, so leave it open if your connection is slow.";
+    xShow(xTransportEl, true);
+    if (waited >= TRANSPORT_TROUBLE_MS) recordTransport(health);
+  }, 1000);
+}
+
 let xfer = null;        // the running session
 let xferRole = null;    // "holder" | "joiner"
 let xferChosen = null;  // in flow A, the code the person tapped
@@ -3393,6 +3451,9 @@ function xFail(message) {
 
 function closeTransfer() {
   stopCamera();
+  clearInterval(transportTimer);
+  xShow(xTransportEl, false);
+  if (xfer) recordTransport(xfer.transport());
   if (xfer) xfer.cancel();
   xfer = null;
   xferChosen = null;
@@ -3406,25 +3467,6 @@ function closeTransfer() {
 xCloseBtn.addEventListener("click", closeTransfer);
 
 /* ---------- starting one ---------- */
-
-// §3.1: find out whether a relay can be reached before showing a
-// code that could never complete. A browser has no local network
-// path, so a device that reaches nothing has nowhere to send a key
-// and is told so.
-async function withRelays(then) {
-  xRender({ title: "add a device", waiting: "connecting" });
-  const reachable = await Keyxfer.probeRelays(Keyxfer.DEFAULT_RELAYS);
-  if (reachable.length === 0) {
-    xRender({
-      title: "add a device",
-      note: "Hearth couldn't reach any of the relays a transfer travels over. This needs a " +
-        "working connection on both devices.",
-      buttons: [{ label: "try again", onClick: () => withRelays(then) }],
-    });
-    return;
-  }
-  then(reachable);
-}
 
 /* ---------- arriving on a pairing link ----------
 
@@ -3529,17 +3571,14 @@ function openTransfer(role, onClose) {
     }
   }
 
-  withRelays((relays) => {
-    // The offer hearth makes first: the new device shows a code and
-    // the device that already has the key scans it. The other way
-    // round is one tap away, for a pair whose cameras are the wrong
-    // way round.
-    if (role === "holder") beginScanning(relays);
-    else beginShowing(relays);
-  });
+  // The offer hearth makes first: the new device shows a code and the
+  // device that already has the key scans it. The other way round is
+  // one tap away, for a pair whose cameras are the wrong way round.
+  if (role === "holder") beginScanning();
+  else beginShowing();
 }
 
-function beginShowing(relays) {
+function beginShowing() {
   stopCamera();
   const showing = xferRole === "joiner";
   // The screen is put up before the session starts, because the
@@ -3553,49 +3592,38 @@ function beginShowing(relays) {
     waiting: "waiting for your other device",
     alt: {
       label: "scan the code it shows instead",
-      onClick: () => { if (xfer) xfer.cancel(); withRelays(beginScanning); },
+      onClick: () => { if (xfer) xfer.cancel(); beginScanning(); },
     },
   });
   xfer = Keyxfer.startSession({
     role: xferRole,
     showing: true,
-    relays,
+    relays: Keyxfer.DEFAULT_RELAYS,
     on: onTransferEvent,
   });
+  watchTransport();
 }
 
 // A pairing URI in hand, however it got here: read off the camera, or
 // carried in the fragment of a link the phone's own camera app opened.
 // From here the two are the same transfer.
-async function beginScanned(scanned) {
+function beginScanned(scanned) {
   const title = xferRole === "holder" ? "add a device" : "your new device";
   xRender({ title, waiting: "connecting" });
-  // The relays that matter to a device that scanned are the ones the
-  // code named, not the ones this device would have chosen: those are
-  // where the other device is listening. Probed here rather than
-  // before the scan for the same reason (§3.1), so that a pair with
-  // no relay between them is told now instead of after a code has sat
-  // on screen for ten minutes.
-  const reachable = await Keyxfer.probeRelays(scanned.relays);
-  if (reachable.length === 0) {
-    xRender({
-      title,
-      note: "Hearth couldn't reach any of the relays your other device is listening on. This " +
-        "needs a working connection on both devices.",
-      buttons: [{ label: "try again", onClick: () => beginScanned(scanned) }],
-    });
-    return;
-  }
+  // Started rather than gated. The relays that matter here are the
+  // ones the code named, because those are where the other device is
+  // listening, and the session keeps trying them for as long as it
+  // lives instead of ruling on them once.
   xfer = Keyxfer.startSession({
     role: xferRole,
     showing: false,
     scanned,
     on: onTransferEvent,
   });
-  xRender({ title, waiting: "connecting" });
+  watchTransport();
 }
 
-function beginScanning(relays) {
+function beginScanning() {
   xRender({
     title: xferRole === "holder" ? "add a device" : "your new device",
     note: "Point this at the code on your other device.",
@@ -3603,7 +3631,7 @@ function beginScanning(relays) {
     waiting: "looking for a code",
     alt: {
       label: "show a code instead",
-      onClick: () => { stopCamera(); withRelays(beginShowing); },
+      onClick: () => { stopCamera(); beginShowing(); },
     },
   });
   let taken = false;
@@ -3631,13 +3659,21 @@ function beginScanning(relays) {
     xRender({
       title: xferRole === "holder" ? "add a device" : "your new device",
       note: "Hearth couldn't use the camera on this device: " + err.message,
-      buttons: [{ label: "show a code instead", onClick: () => withRelays(beginShowing) }],
+      buttons: [{ label: "show a code instead", onClick: beginShowing }],
     });
   });
 }
 
 /* ---------- what the session says, and what the screen does ---------- */
 async function onTransferEvent(type, data) {
+  // The first relay to come up. The flow is already proceeding by
+  // then, so this only takes down whatever the screen was saying
+  // about waiting for one.
+  if (type === "connected") {
+    xShow(xTransportEl, false);
+    return;
+  }
+
   if (type === "qr") {
     const link = pairingLink(data);
     drawQr(xQrCanvas, link.url);
@@ -3730,6 +3766,9 @@ async function onTransferEvent(type, data) {
   }
 
   if (type === "sent") {
+    // Kept for a transfer that worked but took its time. The
+    // interesting report is not only the one that failed.
+    recordTransport(xfer && xfer.transport());
     recordTransfer({
       ts: Math.floor(Date.now() / 1000),
       role: "holder",
@@ -3833,6 +3872,8 @@ async function offerLogin(peerHex) {
 
 async function keepReceivedKey(peerHex) {
   xRender({ title: "your new device", waiting: "keeping it" });
+  // Before the reload below takes this page away with it.
+  recordTransport(xfer.transport());
   // The two messages were sent together but travel separately, and
   // the second one is what saves this device from asking for a server
   // address. Worth a moment before giving up on it, and no longer,

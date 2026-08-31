@@ -437,7 +437,7 @@ function displayOrigin(origin) {
    burner and all of them published to. A relay that refuses the
    publish is simply one that did not carry it; the others did.
    ============================================================ */
-function relayPool(urls, burner, onEvent, onNote) {
+function relayPool(urls, burner, onEvent, onHealth) {
   const sockets = new Map();
   const seen = new Set();
   // Everything this session has published, kept so that a relay
@@ -446,8 +446,58 @@ function relayPool(urls, burner, onEvent, onNote) {
   // ready. A session publishes a handful of small events, and a
   // relay seeing one twice discards the duplicate by id.
   const outbox = [];
+  // One row per relay, for the whole life of the session: what it is
+  // doing now, how many times it has been tried, how long it took to
+  // open when it did, and what it said when it stopped. This is the
+  // record to read when somebody reports that a transfer would not
+  // start, because "no relay could be reached" on its own says
+  // nothing about which one was slow or why.
+  const health = new Map();
+  const startedAt = Date.now();
   let closed = false;
-  let live = 0;
+
+  for (const url of urls.slice(0, 4)) {
+    health.set(url, {
+      status: "connecting", attempts: 0, openMs: null,
+      subscribed: false, lastReason: null, retryInMs: null,
+    });
+  }
+
+  function summary() {
+    let live = 0;
+    for (const row of health.values()) if (row.status === "open") live++;
+    return {
+      live,
+      total: health.size,
+      elapsedMs: Date.now() - startedAt,
+      relays: Array.from(health, ([url, row]) => Object.assign({ url }, row)),
+    };
+  }
+
+  function note(url, change) {
+    const row = health.get(url);
+    if (!row) return;
+    Object.assign(row, change);
+    // Logged as it happens rather than summarised at the end,
+    // because the interesting case is the one where nothing ever
+    // finishes and there is no end to summarise.
+    console.info("hearth: transfer relay", url, row.status,
+      row.openMs !== null ? row.openMs + "ms" : "",
+      row.lastReason || "", "attempt " + row.attempts);
+    if (onHealth) onHealth(summary());
+  }
+
+  function subscribe(ws) {
+    ws.send(JSON.stringify(["REQ", "kx", {
+      kinds: [KINDS.GIFT_WRAP],
+      "#p": [burner.pub],
+      // Two days back, because a wrap's created_at is randomised
+      // that far into the past. A subscription starting now is a
+      // subscription that receives nothing and looks like a
+      // relay that has stopped answering.
+      since: nowSeconds() - SINCE_BACKDATE,
+    }]));
+  }
 
   function flush(ws) {
     for (const event of outbox) {
@@ -455,29 +505,48 @@ function relayPool(urls, burner, onEvent, onNote) {
     }
   }
 
-  function open(url) {
+  // A relay is tried again for as long as the session is alive. The
+  // first attempt on a cold connection is the slow one — Safari
+  // opening a first socket to a public relay can take longer than
+  // anybody would guess — and the second is usually immediate, so
+  // giving up on the first would be giving up on the case this most
+  // needs to handle. Backoff so a relay that is genuinely down is
+  // not hammered for ten minutes.
+  function retry(url, reason) {
+    if (closed) return;
+    const row = health.get(url);
+    const delay = Math.min(8000, 1000 * Math.pow(2, Math.min(row.attempts - 1, 3)))
+      + Math.floor(Math.random() * 400);
+    note(url, { status: "waiting", lastReason: reason, retryInMs: delay, subscribed: false });
+    setTimeout(() => connect(url), delay);
+  }
+
+  function connect(url) {
+    if (closed) return;
+    const row = health.get(url);
+    row.attempts++;
+    const began = Date.now();
     let ws;
     let authId = null;
+    // Fires once per socket: an error and a close both arrive for
+    // one failure, and scheduling two retries would double the
+    // attempts every round.
+    let settled = false;
+
     try {
       ws = new WebSocket(url);
     } catch (err) {
+      note(url, { status: "connecting", retryInMs: null });
+      retry(url, err.message || "would not open");
       return;
     }
     sockets.set(url, ws);
+    note(url, { status: "connecting", retryInMs: null, lastReason: null });
 
     ws.addEventListener("open", () => {
       if (closed) { try { ws.close(); } catch (e) {} return; }
-      live++;
-      if (onNote) onNote("live", live);
-      ws.send(JSON.stringify(["REQ", "kx", {
-        kinds: [KINDS.GIFT_WRAP],
-        "#p": [burner.pub],
-        // Two days back, because a wrap's created_at is randomised
-        // that far into the past. A subscription starting now is a
-        // subscription that receives nothing and looks like a
-        // relay that has stopped answering.
-        since: nowSeconds() - SINCE_BACKDATE,
-      }]));
+      note(url, { status: "open", openMs: Date.now() - began, lastReason: null });
+      subscribe(ws);
       flush(ws);
     });
 
@@ -490,6 +559,16 @@ function relayPool(urls, burner, onEvent, onNote) {
         if (seen.has(event.id)) return;
         seen.add(event.id);
         onEvent(event);
+        return;
+      }
+      if (frame[0] === "EOSE" && frame[1] === "kx") {
+        note(url, { subscribed: true });
+        return;
+      }
+      if (frame[0] === "CLOSED" && frame[1] === "kx") {
+        // The socket is still up; it is the subscription that is
+        // not, which is worth knowing apart from a dead connection.
+        note(url, { subscribed: false, lastReason: "subscription refused: " + (frame[2] || "") });
         return;
       }
       if (frame[0] === "AUTH") {
@@ -509,23 +588,28 @@ function relayPool(urls, burner, onEvent, onNote) {
         // Authenticated now, so anything this relay refused before
         // it asked goes again, and the subscription it closed is
         // reopened.
-        ws.send(JSON.stringify(["REQ", "kx", {
-          kinds: [KINDS.GIFT_WRAP],
-          "#p": [burner.pub],
-          since: nowSeconds() - SINCE_BACKDATE,
-        }]));
+        note(url, { lastReason: null });
+        subscribe(ws);
         flush(ws);
         return;
       }
     });
 
-    ws.addEventListener("close", () => {
+    ws.addEventListener("close", (evt) => {
       if (sockets.get(url) === ws) sockets.delete(url);
+      if (settled) return;
+      settled = true;
+      retry(url, "closed" + (evt && evt.code ? " (" + evt.code + ")" : ""));
     });
-    ws.addEventListener("error", () => {});
+
+    ws.addEventListener("error", () => {
+      if (settled) return;
+      settled = true;
+      retry(url, "connection failed");
+    });
   }
 
-  for (const url of urls.slice(0, 4)) open(url);
+  for (const url of health.keys()) connect(url);
 
   return {
     publish(event) {
@@ -537,10 +621,11 @@ function relayPool(urls, burner, onEvent, onNote) {
       }
       // Nought here is a socket that has not finished opening
       // rather than a failure: the flush above sends it the moment
-      // one does.
+      // one does, and a relay still being retried will get it when
+      // it comes up.
       return sent;
     },
-    get liveCount() { return live; },
+    summary,
     close() {
       closed = true;
       for (const ws of sockets.values()) { try { ws.close(); } catch (e) {} }
@@ -549,48 +634,25 @@ function relayPool(urls, burner, onEvent, onNote) {
   };
 }
 
-// §3.1: before any transfer screen is shown, find out whether a
-// relay can be reached at all. A browser cannot do the local
-// network path, so a device that reaches nothing here has nowhere
-// to send a key and is told so rather than shown a QR that can
-// never complete.
-function probeRelays(urls, timeoutMs) {
-  return new Promise((resolve) => {
-    const reachable = [];
-    let settled = false;
-    let pending = urls.length;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      resolve(reachable);
-    };
-    const timer = setTimeout(finish, timeoutMs || PROBE_MS);
-    for (const url of urls) {
-      let ws;
-      try {
-        ws = new WebSocket(url);
-      } catch (err) {
-        if (--pending === 0) { clearTimeout(timer); finish(); }
-        continue;
-      }
-      let settledThis = false;
-      const done = (ok) => {
-        // open, then close, fires twice for one socket, and a
-        // second decrement would end the probe before the other
-        // relays had answered.
-        if (settledThis) return;
-        settledThis = true;
-        if (ok) reachable.push(url);
-        try { ws.close(); } catch (e) {}
-        if (--pending === 0) { clearTimeout(timer); finish(); }
-      };
-      ws.addEventListener("open", () => done(true));
-      ws.addEventListener("error", () => done(false));
-      ws.addEventListener("close", () => done(false));
-    }
-    if (urls.length === 0) { clearTimeout(timer); finish(); }
-  });
-}
+/* §3.1 and what a browser can do about it.
+
+   The specification probes for a transport before showing any
+   transfer screen, and picks between relays, the local network and
+   an off-grid code from what comes back. A browser has none of that
+   choice: it cannot do the local path in either role, and it cannot
+   be the off-grid holder either, so the only two outcomes a probe
+   can produce here are "relays" and "nothing at all" — and there is
+   no behaviour behind the second one.
+
+   A one-shot probe with a three-second timeout therefore decided the
+   fate of a session the specification gives ten minutes, and decided
+   it against exactly the case that most needs handling: a first,
+   cold WebSocket to a public relay, which Safari can take longer
+   over than any timeout worth setting. So there is no probe. The
+   pool above starts connecting the moment a session does and keeps
+   at it for as long as the session lives, the flow proceeds as soon
+   as one relay is up, and how it is getting on is something the
+   screen reports rather than something the session rules on. */
 
 /* ============================================================
    a session
@@ -617,6 +679,7 @@ function startSession(opts) {
   let ownNonce = null;
   let ownCommit = null;
   let awaitingConsent = null;
+  let everLive = false;
   let pool = null;
   let finished = false;
   let multiSeen = false;
@@ -949,6 +1012,11 @@ function startSession(opts) {
 
     cancel() { stop("cancelled"); },
     peers() { return sasList(); },
+
+    // How each relay is getting on, for a screen that wants to say
+    // so and for anybody reading a report of a transfer that would
+    // not start.
+    transport() { return pool ? pool.summary() : null; },
   };
 
   function nextPending() {
@@ -959,8 +1027,12 @@ function startSession(opts) {
   // Getting started: a burner, a subscription, and either a QR to
   // draw or a first message to send.
   (async function begin() {
-    pool = relayPool(relays, burner, onWrap, (what) => {
-      if (what === "live") emit("connected");
+    pool = relayPool(relays, burner, onWrap, (health) => {
+      if (health.live > 0 && !everLive) {
+        everLive = true;
+        emit("connected", health);
+      }
+      emit("transport", health);
     });
 
     if (showing) {
@@ -1013,7 +1085,6 @@ global.Keyxfer = {
   buildUri,
   parseUri,
   displayOrigin,
-  probeRelays,
   startSession,
   toHex,
   fromHex,

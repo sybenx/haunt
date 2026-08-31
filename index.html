@@ -565,6 +565,10 @@ input{font:inherit;color:inherit;background:none;border:none}
   text-decoration:underline;text-underline-offset:3px;
 }
 .xSpin{font-size:12px;color:var(--faint)}
+/* Said only once it has been long enough to be true. A transfer that
+   is still connecting looks exactly like one that never will for the
+   first few seconds, and the difference is worth waiting to know. */
+.xSlow{font-size:12px;line-height:1.55;color:var(--dim);max-width:30ch}
 /* One line per past transfer, in the same shape as the relay rows
    above it, because it is the same kind of list: a short record of
    something this device did. */
@@ -765,6 +769,7 @@ input{font:inherit;color:inherit;background:none;border:none}
     <div class="xMulti" id="xMulti" hidden></div>
     <div class="choiceRow" id="xButtons"></div>
     <div class="xSpin" id="xSpin" hidden></div>
+    <div class="xSlow" id="xTransport" hidden></div>
     <p class="xFail" id="xFail" hidden></p>
     <button class="xAlt" id="xAlt" hidden></button>
   </div>
