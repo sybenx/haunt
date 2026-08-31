@@ -77,6 +77,13 @@ const KINDS = {
   SAS_REVEAL: 24313,
 };
 
+// The kinds this file speaks. Anything else inside a session is the
+// caller's own and is handed to it untouched.
+const KNOWN_KINDS = new Set([
+  KINDS.KEY_HELLO, KINDS.KEY_REQUEST, KINDS.KEY_TRANSFER,
+  KINDS.TRANSFER_ACK, KINDS.SAS_NONCE, KINDS.SAS_REVEAL,
+]);
+
 const VERSION = "1";              // the `v` tag and the QR's v=
 const SESSION_SECONDS = 600;      // §3, a session lives ten minutes
 const WRAP_EXPIRY_SECONDS = 600;  // §3.4
@@ -764,6 +771,19 @@ function startSession(opts) {
       return;
     }
 
+    /* ---- anything else this file does not speak ---- */
+    // A client may carry its own messages inside a session it has
+    // already established — this file has no opinion on what, and
+    // hands them up rather than dropping them. Only ever from a
+    // burner already talking to us, and only after the same checks
+    // every other rumor passes.
+    if (!KNOWN_KINDS.has(rumor.kind)) {
+      if (peers.has(from)) {
+        emit("rumor", { kind: rumor.kind, tags: rumor.tags, content: rumor.content, from });
+      }
+      return;
+    }
+
     /* ---- the receipt that lets a holder let go ---- */
     if (rumor.kind === KINDS.TRANSFER_ACK) {
       if (role !== "holder") return;
@@ -912,6 +932,19 @@ function startSession(opts) {
       // covers it either way.
       setTimeout(() => stop("done"), 400);
       return record;
+    },
+
+    // The caller's own message, to a burner this session is already
+    // talking to. Same seal, same wrap, same session; this file does
+    // not look inside it.
+    //
+    // The burner tag is added here rather than asked of the caller.
+    // Every rumor carries it and the far side discards any that does
+    // not, so leaving it to a caller that has no reason to know the
+    // rule would be a message that vanishes with no error anywhere.
+    async sendTo(peerHex, kind, tags, content) {
+      if (!peers.has(peerHex) || finished) return 0;
+      return await send(kind, [["burner", burner.pub]].concat(tags || []), content, peerHex);
     },
 
     cancel() { stop("cancelled"); },

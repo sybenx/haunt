@@ -26,6 +26,20 @@ Someone who arrives by link is never asked to configure anything. The field for 
 relay address by hand exists for the person who arrived with nothing, and it is the
 unusual path rather than the front door.
 
+Two arrivals need two screens, because they are not the same person. Somebody following
+an invite link is being let in by somebody who already knows them, and the only thing
+asked of them is what to call themselves. Somebody who opens the bare address with no
+link and no identity on the device is almost never new — a link is how anyone is let in
+— so they are a member standing in front of a device that does not have their account
+yet, and that screen is a log in. It leads with bringing the account from the device that
+does have it, offers a signing extension quietly beside that, and keeps the relay address
+field at the bottom for the person who has neither.
+
+A device that has just been handed an identity is also told where the room is: the
+sending device passes its relay list over the same encrypted channel, right behind the
+key. Without it a device would have the account and no idea which relay to ask, and the
+first thing it saw would be the address field that the whole transfer existed to avoid.
+
 ## Identity
 
 Identity is a nostr keypair, and the people using Hearth are not expected to know that. A

@@ -53,6 +53,13 @@ const nameSubmitBtn = document.getElementById("nameSubmit");
 const landingExtRowEl = document.getElementById("landingExtRow");
 const landingExtBtn = document.getElementById("landingExt");
 const landingDeviceBtn = document.getElementById("landingDevice");
+const loginScreenEl = document.getElementById("loginScreen");
+const loginDeviceBtn = document.getElementById("loginDevice");
+const loginExtRowEl = document.getElementById("loginExtRow");
+const loginExtBtn = document.getElementById("loginExt");
+const loginFailEl = document.getElementById("loginFail");
+const loginRelayInput = document.getElementById("loginRelayInput");
+const loginRelayGoBtn = document.getElementById("loginRelayGo");
 const landingNoteEl = document.getElementById("landingNote");
 const landingFailEl = document.getElementById("landingFail");
 const aoAddDeviceBtn = document.getElementById("aoAddDevice");
@@ -440,27 +447,135 @@ async function lookupNostrName(pubkey) {
 }
 
 /* ============================================================
-   the landing screen
+   arriving
 
-   The first thing anybody sees who has no identity on this device.
-   It asks the only question that has to be answered before there is
-   somebody to be, and it asks it before a key is minted, so that
-   signing in with an extension never means naming a key that is
-   about to be thrown away. Somebody who signs in is asked nothing at
-   all when their own name can be found.
+   Two arrivals, and they are not the same person, so they do not get
+   the same screen.
 
-   An invite arrival sees this too, which costs a person who follows
-   a spent link the name they typed into it. That is the trade for
-   not minting a key, and a group profile, for somebody who already
-   has an identity and only wants to use it here.
+   Somebody following an invite link is being let into a room by
+   somebody who already knows them, and the only thing wanted from
+   them is what to call them. That is the name screen, and it asks
+   before a key is minted so that signing in with an extension never
+   means naming a key that is about to be thrown away.
+
+   Somebody arriving at the bare address with no link and no identity
+   on the device is a different person entirely. Almost nobody is
+   genuinely new here without a link — a link is how anyone is let in
+   — so this is somebody who already has an account and is standing in
+   front of a device that does not have it yet. That is the log-in
+   screen, and it leads with the one thing that fits: bring it from
+   the device that does have it. The address box is still there,
+   because somebody with neither a link nor a second device has to
+   have a way through, but it is the last resort rather than the
+   greeting.
    ============================================================ */
 let pendingName = null; // { name, seeded } settled before there was a relay to publish it to
+// A relay typed on the log-in screen, before there was an identity to
+// connect with. resolveRelayUrl prefers it over anything remembered.
+let chosenRelay = null;
 
-function landing() {
+// Signing in with an extension is offered on both screens and behaves
+// the same on each: take the identity it holds, then go and read the
+// name that identity already publishes so nobody is asked for one
+// they have written down elsewhere. Resolves to a signer, or to null
+// when the extension would not say who it is.
+async function signInWithExtension(failEl, onLooking) {
+  let signer;
+  try {
+    signer = extensionSigner(await window.nostr.getPublicKey());
+  } catch (err) {
+    failEl.textContent = "your extension didn't hand over a public key. " +
+      "You can try again, or come in as somebody new.";
+    failEl.hidden = false;
+    return null;
+  }
+  localStorage.setItem(SIGNER_CHOICE_KEY, "extension");
+  if (onLooking) onLooking();
+  const found = await lookupNostrName(signer.pubkey);
+  // Their own profile's name, taken on their behalf. It stays a
+  // default, tracking that profile, until they rename here.
+  if (found) pendingName = { name: found, seeded: true };
+  return signer;
+}
+
+// The bare address, no link, no identity. Resolves to a signer when
+// one is found, or to null when the person has said they are coming
+// in as somebody new and the name screen should take over.
+function loginScreen() {
   return new Promise((resolve) => {
-    let signedIn = null; // an extension identity, once it has been taken
+    loginExtRowEl.hidden = !hasExtension();
+    loginScreenEl.hidden = false;
 
-    landingExtRowEl.hidden = !hasExtension();
+    const leave = (signer) => {
+      loginScreenEl.hidden = true;
+      resolve(signer);
+    };
+
+
+    // The screen is about this. Nothing is minted down this path, so
+    // somebody who takes it never has a throwaway key to write over.
+    loginDeviceBtn.addEventListener("click", () => {
+      loginScreenEl.hidden = true;
+      openTransfer("joiner", () => {
+        // Came back without a key, so this screen's question stands.
+        loginScreenEl.hidden = false;
+      });
+    });
+
+    loginExtBtn.addEventListener("click", async () => {
+      loginFailEl.hidden = true;
+      loginExtBtn.disabled = true;
+      const signer = await signInWithExtension(loginFailEl, () => {
+        loginFailEl.hidden = true;
+      });
+      if (!signer) { loginExtBtn.disabled = false; return; }
+      // Signed in, but their profile carries no name. Nobody is in
+      // this room as eight characters of hex, so the name screen
+      // takes over with the identity already settled.
+      leave(signer);
+    });
+
+    const useTypedRelay = () => {
+      const value = loginRelayInput.value.trim();
+      if (!value) return;
+      chosenRelay = relayUrlFromHost(value);
+      leave(null); // on to the name screen, and a key of their own
+    };
+    loginRelayGoBtn.addEventListener("click", useTypedRelay);
+    loginRelayInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") useTypedRelay();
+    });
+  });
+}
+
+// Whichever screen this arrival calls for.
+async function landing() {
+  // An invite link is somebody being let in by somebody who knows
+  // them, and it is the only arrival where a name is the question.
+  if (!parseFragment().get("code")) {
+    const signer = await loginScreen();
+    // A name found on their own profile is the last question
+    // answered; without one there is still a name to ask for, and
+    // the name screen asks it with the identity already settled.
+    if (signer && pendingName) return signer;
+    return await nameScreen(signer);
+  }
+  return await nameScreen(null);
+}
+
+function nameScreen(alreadySignedIn) {
+  return new Promise((resolve) => {
+    let signedIn = alreadySignedIn || null; // an extension identity, once it has been taken
+
+    // An offer already taken is not an offer, and somebody arriving
+    // here signed in is owed a word about why they are being asked
+    // anything at all.
+    landingExtRowEl.hidden = !hasExtension() || !!signedIn;
+    if (signedIn) {
+      landingNoteEl.textContent =
+        "You're signed in. There's no name on your nostr profile, so give one here.";
+      landingNoteEl.hidden = false;
+    }
     namePromptEl.hidden = false;
     nameInput.focus();
 
@@ -493,27 +608,18 @@ function landing() {
       landingFailEl.hidden = true;
       landingExtBtn.disabled = true;
       nameSubmitBtn.disabled = true;
-      let signer;
-      try {
-        signer = extensionSigner(await window.nostr.getPublicKey());
-      } catch (err) {
+      const signer = await signInWithExtension(landingFailEl, () => {
+        landingNoteEl.textContent = "looking for your name";
+        landingNoteEl.hidden = false;
+      });
+      landingNoteEl.hidden = true;
+      if (!signer) {
         landingExtBtn.disabled = false;
         gate();
-        landingFailEl.textContent = "your extension didn't hand over a public key. " +
-          "You can try again, or pick a name and come in as somebody new.";
-        landingFailEl.hidden = false;
         return;
       }
-      localStorage.setItem(SIGNER_CHOICE_KEY, "extension");
       signedIn = signer;
-      landingNoteEl.textContent = "looking for your name";
-      landingNoteEl.hidden = false;
-      const found = await lookupNostrName(signer.pubkey);
-      landingNoteEl.hidden = true;
-      if (found) {
-        // Their own profile's name, taken on their behalf. It stays a
-        // default, tracking that profile, until they rename here.
-        pendingName = { name: found, seeded: true };
+      if (pendingName) {
         enter(signer);
         return;
       }
@@ -853,6 +959,11 @@ async function resolveRelayUrl() {
 
   const fromParam = new URLSearchParams(location.search).get("relay");
   if (fromParam) return relayUrlFromHost(fromParam);
+
+  // Typed on the log-in screen a moment ago, which is a more recent
+  // statement of where this person is going than anything this device
+  // happens to remember.
+  if (chosenRelay) return chosenRelay;
 
   const remembered = rememberedRelays();
   if (remembered.length > 0) return remembered[0];
@@ -3158,6 +3269,9 @@ let xferChosen = null;  // in flow A, the code the person tapped
 // ever set when the transfer was opened from the landing screen and
 // there is no identity behind it to go back to.
 let xferOnClose = null;
+// Where the room is, as told by each device offering a key, kept
+// beside the key itself until one of them is accepted.
+const xferRelays = new Map();
 
 function xShow(el, on) { el.hidden = !on; }
 
@@ -3436,6 +3550,21 @@ async function onTransferEvent(type, data) {
     return;
   }
 
+  // The other device saying where the room is. Held rather than
+  // written down: until the person has agreed to the identity that
+  // arrived, this is a stranger's list of servers and has no business
+  // on this device.
+  if (type === "rumor") {
+    if (data.kind !== KINDS.ROOM_RELAYS) return;
+    try {
+      const parsed = JSON.parse(data.content);
+      if (Array.isArray(parsed.relays)) xferRelays.set(data.from, parsed.relays);
+    } catch (err) {
+      // A list that will not parse is a list this device does without.
+    }
+    return;
+  }
+
   if (type === "sent") {
     recordTransfer({
       ts: Math.floor(Date.now() / 1000),
@@ -3490,6 +3619,18 @@ async function onTransferEvent(type, data) {
 async function sendKey(data) {
   xRender({ title: "add a device", sas: data.sas, waiting: "sending" });
   await xfer.approve(data.peer, S.utils.bytesToHex(identity.privkey), "device");
+  // Straight after the key, in the same session, to the same burner:
+  // the relays this device has reached this room on. A device holding
+  // a key and no idea where the room is would land on a box asking
+  // for a server address, which is precisely what somebody who just
+  // held two phones together was spared. Sent immediately rather than
+  // waiting for the receipt, because the far side stores the key and
+  // reloads the moment its owner agrees, and a message that arrives
+  // after that reload arrives nowhere.
+  const relays = rememberedRelays().slice(0, 8);
+  if (relays.length > 0) {
+    await xfer.sendTo(data.peer, KINDS.ROOM_RELAYS, [], JSON.stringify({ relays }));
+  }
 }
 
 // §4 steps 14 and 15, §5 step 16: the key is in hand and still not
@@ -3528,6 +3669,13 @@ async function offerLogin(peerHex) {
 
 async function keepReceivedKey(peerHex) {
   xRender({ title: "your new device", waiting: "keeping it" });
+  // The two messages were sent together but travel separately, and
+  // the second one is what saves this device from asking for a server
+  // address. Worth a moment before giving up on it, and no longer,
+  // because the key is the part that matters and it is already here.
+  for (let i = 0; i < 30 && !xferRelays.has(peerHex); i++) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
   const record = await xfer.accept(peerHex);
   if (!record) {
     xFail("that key is no longer being offered");
@@ -3535,6 +3683,13 @@ async function keepReceivedKey(peerHex) {
   }
   await storeSealedPrivkey(S.utils.hexToBytes(record.privkeyHex));
   localStorage.removeItem(SIGNER_CHOICE_KEY);
+  // Remembered exactly as a relay this device had reached would be,
+  // last first, so the other device's first choice ends up this
+  // device's first choice. With this list in hand the reload below
+  // goes straight into the room and asks nothing.
+  for (const url of (xferRelays.get(peerHex) || []).slice().reverse()) {
+    if (typeof url === "string" && /^wss?:\/\//.test(url)) rememberRelay(url);
+  }
   // §2.2's unlock setting travels with the key. Hearth has one
   // behaviour today, the default, and stores what arrived so that
   // the setting is not lost by the device that carried it.

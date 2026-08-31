@@ -497,6 +497,20 @@ input{font:inherit;color:inherit;background:none;border:none}
 }
 .npInner button.quiet:disabled{opacity:.4}
 .npNote{font-size:12.5px;color:var(--faint)}
+/* The log-in screen is the same panel as the name screen, with the
+   order of its parts saying which arrival it is for: the one action
+   that fits almost everybody who gets here is the size of the screen,
+   and the address box is at the bottom under a rule, where a last
+   resort belongs. */
+.login .npInner{gap:12px}
+.lgLead{font-size:12.5px;line-height:1.6;color:var(--dim);margin-bottom:2px}
+.lgLast{
+  width:100%;margin-top:14px;padding-top:16px;border-top:1px solid var(--line);
+  display:flex;flex-direction:column;gap:8px;
+}
+.lgNote{font-size:11.5px;line-height:1.55;color:var(--faint)}
+.lgLast .relayRow input{font-size:13px}
+.lgLast .relayRow button{background:var(--raise2);color:var(--dim);font-weight:400}
 .npFail{font-size:12.5px;line-height:1.5;color:var(--live)}
 
 /* the transfer screen: one thing at a time, over the fire */
@@ -749,6 +763,30 @@ input{font:inherit;color:inherit;background:none;border:none}
     <div class="xSpin" id="xSpin" hidden></div>
     <p class="xFail" id="xFail" hidden></p>
     <button class="xAlt" id="xAlt" hidden></button>
+  </div>
+</div>
+
+<div class="namePrompt login" id="loginScreen" hidden>
+  <div class="hearthGlow"></div>
+  <div class="npInner">
+    <div class="npTitle">Log in</div>
+    <p class="lgLead">Your account lives on your own devices rather than on a server. If you
+      already have it on another one, bring it here: that device shows a code and this one
+      reads it.</p>
+    <button id="loginDevice">bring it from your other device</button>
+    <div class="npAlt" id="loginExtRow" hidden>
+      <button id="loginExt" class="quiet">sign in with a nostr extension instead</button>
+    </div>
+    <p class="npFail" id="loginFail" hidden></p>
+    <div class="lgLast">
+      <p class="lgNote">No other device and no invite link? Type the address of the room you're
+        joining, and come in as somebody new.</p>
+      <div class="relayRow">
+        <input id="loginRelayInput" type="text" autocomplete="off"
+          placeholder="the address you were given">
+        <button id="loginRelayGo">continue</button>
+      </div>
+    </div>
   </div>
 </div>
 

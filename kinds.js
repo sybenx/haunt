@@ -46,6 +46,21 @@ const KINDS = {
   CALL_SIGNAL: 25050,
   CALL_PRESENCE: 25051,
 
+  // Hearth's own, no NIP: the relays this group can be reached on,
+  // sent to a device that has just been given this identity. A new
+  // device has the key and no idea where the room is, and the list
+  // is per-device, so without this the first thing it would ask for
+  // is a server address — which is the one thing the transfer
+  // existed to avoid.
+  //
+  // Never published as an event. It is a rumor inside a gift wrap,
+  // so the ephemeral range it sits in never comes up: no relay sees
+  // it as anything but the wrap it travels in. It is here rather
+  // than in keyxfer.js because it is hearth's, not the transfer
+  // specification's, and that file implements only what other
+  // clients also implement.
+  ROOM_RELAYS: 25052,
+
   // NIP-98 HTTP auth, for the relay's NIP-86 management API.
   HTTP_AUTH: 27235,
 };
