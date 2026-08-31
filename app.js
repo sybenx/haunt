@@ -552,6 +552,22 @@ function loginScreen() {
 async function landing() {
   // An invite link is somebody being let in by somebody who knows
   // them, and it is the only arrival where a name is the question.
+  // A pairing link naming this device as the joiner is the log-in
+  // screen's own primary action, already taken on the other device.
+  // Asking the question again would be asking somebody to choose
+  // something they have just chosen.
+  const pairing = pendingPairing();
+  if (pairing) {
+    // Every kind of pairing link is answered here, including one
+    // asking this device for a key it does not have: that person
+    // scanned with the wrong device of the two, and being told so is
+    // better than being walked through a log in that was never the
+    // thing they were doing.
+    await new Promise((resolve) => openPairing(pairing, resolve));
+    // Back here means no key arrived, so the arrival goes on as it
+    // would have without the link.
+  }
+
   if (!parseFragment().get("code")) {
     const signer = await loginScreen();
     // A name found on their own profile is the last question
@@ -3197,6 +3213,52 @@ function renderTransfers() {
 
 /* ---------- the code, drawn and read ---------- */
 
+/* ---------- what the code points at ----------
+
+   Not the nostr+keyxfer URI on its own. A phone's own camera app,
+   which is what somebody actually points at a screen, hands an
+   unknown scheme to a web search rather than to an app, and no
+   browser has registered that scheme because hearth is a page rather
+   than an installed app. So the code carries an ordinary https link
+   to this copy of hearth, with the pairing URI inside it, and the
+   phone opens what it always opens.
+
+   In the fragment rather than the query, because a fragment is never
+   sent to the server: the host this page is served from never sees a
+   burner key or a relay list in a request log.
+
+   Whole rather than unpacked into the link's own parameters. The
+   string the specification defines is the string its rules are
+   written about, so it arrives at the parser exactly as it left the
+   other device, and a version this build does not know is still
+   refused by the same line of code. */
+const PAIR_PARAM = "pair";
+
+function isLoopback(host) {
+  return host === "localhost" || host === "127.0.0.1" || host === "[::1]" ||
+    host === "::1" || host === "0.0.0.0" || host.endsWith(".localhost");
+}
+
+// The link the QR draws, built from wherever this copy of hearth was
+// served from. A copy served by a relay points at that relay and the
+// canonical copy points at itself, so the code never sends anybody to
+// a copy the pair has no reason to be able to reach.
+function pairingLink(uri) {
+  const http = location.protocol === "https:" || location.protocol === "http:";
+  if (!http) return { url: uri, reachable: false, reason: "file" };
+  const params = new URLSearchParams();
+  params.set(PAIR_PARAM, uri);
+  return {
+    url: location.origin + location.pathname + "#" + params.toString(),
+    // A loopback address means something on this machine and nothing
+    // at all on the phone being pointed at it, so a code built here
+    // cannot be followed. Said on screen rather than left to fail as
+    // a page that will not load.
+    reachable: !isLoopback(location.hostname),
+    reason: isLoopback(location.hostname) ? "loopback" : null,
+  };
+}
+
 // Error correction level M, which is what stays readable on a
 // screen held at arm's length without making the code so dense
 // that a phone two years old cannot resolve it.
@@ -3206,7 +3268,9 @@ function drawQr(canvas, text) {
   qr.make();
   const modules = qr.getModuleCount();
   const quiet = 4; // the margin a scanner needs to find the edges
-  const scale = 4;
+  // Enough backing pixels that the browser is always scaling this
+  // down rather than up, whatever the panel's width works out to.
+  const scale = 6;
   const size = (modules + quiet * 2) * scale;
   canvas.width = size;
   canvas.height = size;
@@ -3362,6 +3426,74 @@ async function withRelays(then) {
   then(reachable);
 }
 
+/* ---------- arriving on a pairing link ----------
+
+   The other device's code sent this browser here with a pairing URI
+   in the fragment. Which side of the transfer this device is on is
+   already settled by that URI: a code offering a key wants a holder
+   to scan it, and a code asking for one wants a joiner, so nothing
+   has to be guessed from what this device happens to hold.
+   ============================================================ */
+function pendingPairing() {
+  const raw = parseFragment().get(PAIR_PARAM);
+  if (!raw) return null;
+  try {
+    const scanned = Keyxfer.parseUri(raw);
+    return { scanned, role: scanned.mode === "offer" ? "holder" : "joiner" };
+  } catch (err) {
+    // An unreadable or unknown-version code. Kept rather than
+    // swallowed, so the screen can say so instead of the link
+    // appearing to do nothing.
+    return { error: err.message };
+  }
+}
+
+// Once, and then out of the address bar: a reload should not start the
+// transfer again, and a bookmark of this page should not carry
+// somebody's pairing parameters around.
+function consumePairing() {
+  const params = parseFragment();
+  params.delete(PAIR_PARAM);
+  const rest = params.toString();
+  history.replaceState(null, "", location.pathname + location.search + (rest ? "#" + rest : ""));
+}
+
+// Straight into the transfer, with no camera and no method to pick,
+// because the code has already been read by the phone that opened
+// this page.
+function openPairing(pairing, onClose) {
+  consumePairing();
+  xferRole = pairing.role;
+  xferChosen = null;
+  xferOnClose = onClose || null;
+  accountOverlayEl.hidden = true;
+  xferEl.hidden = false;
+  xShow(xMultiEl, false);
+  if (pairing.error) {
+    xRender({
+      title: "add a device",
+      note: "That code couldn't be read: " + pairing.error,
+      buttons: [{ label: "close", onClick: closeTransfer }],
+    });
+    return;
+  }
+  // A code asking for a key, opened on a device that has none, is
+  // somebody who scanned with the wrong device of the two.
+  if (pairing.role === "holder" && (!identity || !identity.holdsPrivateKey)) {
+    xRender({
+      title: "add a device",
+      note: identity
+        ? "Your extension holds this identity's key and hearth only ever asks it to sign, " +
+          "so there is no key here to send."
+        : "That code is asking for an account, and this device doesn't have one yet. Scan it " +
+          "with the device that does.",
+      buttons: [{ label: "close", onClick: closeTransfer }],
+    });
+    return;
+  }
+  beginScanned(pairing.scanned);
+}
+
 function openTransfer(role, onClose) {
   xferRole = role;
   xferChosen = null;
@@ -3432,6 +3564,37 @@ function beginShowing(relays) {
   });
 }
 
+// A pairing URI in hand, however it got here: read off the camera, or
+// carried in the fragment of a link the phone's own camera app opened.
+// From here the two are the same transfer.
+async function beginScanned(scanned) {
+  const title = xferRole === "holder" ? "add a device" : "your new device";
+  xRender({ title, waiting: "connecting" });
+  // The relays that matter to a device that scanned are the ones the
+  // code named, not the ones this device would have chosen: those are
+  // where the other device is listening. Probed here rather than
+  // before the scan for the same reason (§3.1), so that a pair with
+  // no relay between them is told now instead of after a code has sat
+  // on screen for ten minutes.
+  const reachable = await Keyxfer.probeRelays(scanned.relays);
+  if (reachable.length === 0) {
+    xRender({
+      title,
+      note: "Hearth couldn't reach any of the relays your other device is listening on. This " +
+        "needs a working connection on both devices.",
+      buttons: [{ label: "try again", onClick: () => beginScanned(scanned) }],
+    });
+    return;
+  }
+  xfer = Keyxfer.startSession({
+    role: xferRole,
+    showing: false,
+    scanned,
+    on: onTransferEvent,
+  });
+  xRender({ title, waiting: "connecting" });
+}
+
 function beginScanning(relays) {
   xRender({
     title: xferRole === "holder" ? "add a device" : "your new device",
@@ -3463,16 +3626,7 @@ function beginScanning(relays) {
     }
     taken = true;
     stopCamera();
-    xfer = Keyxfer.startSession({
-      role: xferRole,
-      showing: false,
-      scanned,
-      on: onTransferEvent,
-    });
-    xRender({
-      title: xferRole === "holder" ? "add a device" : "your new device",
-      waiting: "connecting",
-    });
+    beginScanned(scanned);
   }).catch((err) => {
     xRender({
       title: xferRole === "holder" ? "add a device" : "your new device",
@@ -3485,8 +3639,18 @@ function beginScanning(relays) {
 /* ---------- what the session says, and what the screen does ---------- */
 async function onTransferEvent(type, data) {
   if (type === "qr") {
-    drawQr(xQrCanvas, data);
+    const link = pairingLink(data);
+    drawQr(xQrCanvas, link.url);
     xShow(xQrEl, true);
+    if (!link.reachable) {
+      xMultiEl.textContent = link.reason === "loopback"
+        ? "This copy of hearth is being served from an address that only means something on " +
+          "this machine, so another device cannot open what this code points at. It works " +
+          "wherever hearth is served from an address both devices can reach."
+        : "This copy of hearth is not being served over the web, so another device cannot " +
+          "open what this code points at.";
+      xShow(xMultiEl, true);
+    }
     return;
   }
 
@@ -3760,6 +3924,12 @@ function start(relayUrl) {
   layout();
   setMode(MODE_VOICE, false); // the room's face is the fire
   new ResizeObserver(layout).observe(mainEl);
+
+  // A pairing link this device is the holder for. It waits until here
+  // because sending a key needs the key, and acquireIdentity above is
+  // what settles whether this device has one.
+  const pairing = pendingPairing();
+  if (pairing && !pairing.error && pairing.role === "holder") openPairing(pairing);
 
   inviteCode = parseFragment().get("code");
 
