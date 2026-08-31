@@ -5,3 +5,10 @@ dev-keys.json
 # macOS writes one of these into every directory it has been looked at
 # in Finder, and one of them was committed once already.
 .DS_Store
+
+# Written by the deploy workflow from the release tag, so that a page
+# left open can tell it has been superseded. Generated rather than
+# committed: a version number in the repository would be a second one
+# to keep in step with the tag, and it would be wrong the moment it
+# drifted.
+version.json

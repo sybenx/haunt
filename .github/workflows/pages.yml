@@ -22,6 +22,19 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The whole history, because the annotated release tag is
+          # where this repo's version lives and a shallow checkout
+          # brings no tags with it.
+          fetch-depth: 0
+      # A page left open for days has no way to learn that a newer one
+      # exists. This is what it asks. Written here rather than kept in
+      # the repository so that there is still exactly one place a
+      # version number comes from: the tag, read at deploy time. An
+      # untagged deploy gets the tag plus a commit count, which is
+      # different from the last one, which is all the page needs.
+      - name: Stamp the deployed version
+        run: printf '{"version":"%s"}\n' "$(git describe --tags --always)" > version.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

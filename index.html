@@ -107,6 +107,17 @@ input{font:inherit;color:inherit;background:none;border:none}
   color:var(--live);font-size:12px;line-height:1.5;
 }
 
+/* A newer hearth is out there. Quiet, in the flow rather than over
+   it, and the width of the room so that it is plainly a line to tap
+   rather than something that has gone wrong. */
+.updateBar{
+  display:block;width:calc(100% - 36px);margin:10px 18px 0;padding:9px 14px;
+  border-radius:10px;text-align:left;
+  background:var(--raise);border:1px solid var(--line2);
+  color:var(--dim);font-size:12px;line-height:1.5;
+}
+.updateBar:active{border-color:var(--ember)}
+
 /* ---------- setup panels (edge states, in the flow below the bar) ---------- */
 .setupPanel{
   margin:14px 18px;padding:14px 16px;border-radius:14px;
@@ -614,6 +625,7 @@ input{font:inherit;color:inherit;background:none;border:none}
     <button class="accountBtn" id="accountBtn" aria-label="you"></button>
   </header>
 
+  <button id="updateBar" class="updateBar" hidden></button>
   <div id="devWarn" class="warnBanner" hidden></div>
   <div id="callWarn" class="warnBanner" hidden></div>
 

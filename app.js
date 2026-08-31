@@ -43,6 +43,7 @@ const msgsEl = document.getElementById("msgs");
 const composerEl = document.getElementById("composer");
 const composerGhostEl = document.getElementById("composerGhost");
 const msgInput = document.getElementById("msgInput");
+const updateBarEl = document.getElementById("updateBar");
 const devWarnEl = document.getElementById("devWarn");
 const callWarnEl = document.getElementById("callWarn");
 const joinRefusedEl = document.getElementById("joinRefused");
@@ -2167,6 +2168,8 @@ function leaveCall() {
   call.opening = false;
   call.speaking.delete(identity.pubkey);
   renderHearth();
+  // The one moment a held update is allowed to happen.
+  applyHeldUpdate();
 }
 
 micBtn.addEventListener("click", () => {
@@ -4204,6 +4207,101 @@ aoFromDeviceBtn.addEventListener("click", () => openTransfer("joiner"));
 aoAllowSendBtn.addEventListener("click", () => setKeyLocked(!keyLocked()));
 
 /* ============================================================
+   noticing that a newer hearth has been deployed
+
+   This page is meant to sit open on a phone for days, and a page
+   that is open is a page that will never fetch itself again. The
+   deploy writes a small file naming the version it published, and
+   this asks for it now and then. There is nothing to compare it
+   against on disk, so the version this page is running as is
+   whatever that file said when it loaded: one number, from one
+   place, and no copy of it in the repository to drift.
+
+   What it never does is reload. A reload throws away a half-typed
+   message and arrives as a jolt, so it is offered as a line to tap
+   and nothing more. And it is refused outright during a call: an
+   update is never worth dropping somebody out of a conversation
+   for, so a tap during one is remembered and honoured when the
+   call ends.
+   ============================================================ */
+const VERSION_URL = "version.json";
+// Four hours between asks, which for a courtesy is often enough. The
+// check that matters is the one below it: somebody picking their
+// phone up is about to use hearth, and that is the moment to have
+// looked.
+const UPDATE_EVERY_MS = 4 * 60 * 60 * 1000;
+// A phone switching between apps fires visibility changes constantly,
+// and none of them is worth a request. This is the floor between two
+// asks however often that happens.
+const UPDATE_MIN_GAP_MS = 15 * 60 * 1000;
+
+let runningVersion = null;  // what was deployed when this page loaded
+let updateWanted = false;   // tapped during a call, waiting for it to end
+let lastVersionCheck = 0;
+
+// No-store rather than no-cache: the answer to this question is worth
+// nothing if it comes from the same store the stale page came from.
+// A failure is silence — served from a copy with no version file, or
+// simply offline — because an app that cannot ask is not an app with
+// news.
+async function fetchDeployedVersion() {
+  lastVersionCheck = Date.now();
+  try {
+    const res = await fetch(VERSION_URL, { cache: "no-store" });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return typeof body.version === "string" && body.version !== "" ? body.version : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function showUpdateOffer() {
+  updateBarEl.textContent = "a newer hearth is ready, tap to load it";
+  updateBarEl.hidden = false;
+}
+
+async function checkForUpdate() {
+  if (!runningVersion || !updateBarEl.hidden) return;
+  const deployed = await fetchDeployedVersion();
+  if (deployed && deployed !== runningVersion) showUpdateOffer();
+}
+
+// The tap. During a call this becomes a promise rather than a reload,
+// because the call is the thing the person is actually doing.
+updateBarEl.addEventListener("click", () => {
+  if (call.joined) {
+    updateWanted = true;
+    updateBarEl.textContent = "the newer hearth will load when the call ends";
+    return;
+  }
+  location.reload();
+});
+
+// Called wherever a call finishes. Nothing happens unless the person
+// asked for this while they were in one, and nothing happens while a
+// call is still running: the rule is that an update never interrupts
+// a conversation, and a rule that depends on being called from the
+// right place is one line away from not being a rule.
+function applyHeldUpdate() {
+  if (updateWanted && !call.joined) location.reload();
+}
+
+async function watchForUpdates() {
+  // Whatever is deployed at this moment is what this page is running,
+  // because this page was fetched a moment ago. A deploy landing
+  // between the two costs one missed offer and nothing else.
+  runningVersion = await fetchDeployedVersion();
+  if (!runningVersion) return; // no version file: a local copy, or an older deploy
+  setInterval(checkForUpdate, UPDATE_EVERY_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    if (Date.now() - lastVersionCheck < UPDATE_MIN_GAP_MS) return;
+    checkForUpdate();
+  });
+}
+
+/* ============================================================
    startup
    ============================================================ */
 function start(relayUrl) {
@@ -4232,6 +4330,7 @@ function start(relayUrl) {
   renderChrome();
   renderHearth();
   registerWorker();
+  watchForUpdates();
 
   layout();
   setMode(MODE_VOICE, false); // the room's face is the fire
