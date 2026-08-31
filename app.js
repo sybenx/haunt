@@ -3164,6 +3164,25 @@ scrollEl.addEventListener("scroll", () => {
    one hearth offers first is the new device showing and the old
    device scanning, because the old device is usually the phone.
    ============================================================ */
+/* Whether the key is locked to this device.
+
+   Locked means this device will not hand the key to another one: the
+   consent prompt that would send it is never reached, so there is
+   nothing here to talk anybody through. It is on by default for a
+   device that was given its key by another, because a device somebody
+   pointed a camera at once is not thereby a device they meant to send
+   keys from ever after.
+
+   What it is not is a security boundary, and nothing should be built
+   on it as though it were. Every device holds the whole key, the
+   unlock is one unguarded tap by design, and anybody holding the
+   device can take it. It is a speed bump on devices the person never
+   nominated as a place their key travels from, and it is not the
+   beginning of an enforcement mechanism.
+
+   The stored name is the older one. Renaming it would read as absent
+   on every device that already has it set, which would quietly
+   unlock exactly the devices this exists for. */
 const RECEIVE_ONLY_KEY = "hearth:receive-only";
 const TRANSFERS_KEY = "hearth:transfers";
 const LOCK_KEY = "hearth:lock";
@@ -3171,7 +3190,7 @@ const LOCK_KEY = "hearth:lock";
 // §8: a device given its key by another device does not pass it on
 // until the person says it may. One tap, nothing guarding it, and
 // said on the transfer screen rather than buried.
-function receiveOnly() {
+function keyLocked() {
   return localStorage.getItem(RECEIVE_ONLY_KEY) === "1";
 }
 
@@ -3784,13 +3803,13 @@ function openTransfer(role, onClose) {
       });
       return;
     }
-    if (receiveOnly()) {
+    if (keyLocked()) {
       xRender({
         title: "add a device",
-        note: "This device was given its key by another device, so it doesn't send it on " +
-          "until you say it may.",
+        note: "Your key is locked to this device, so it can't be sent from here. Unlocking " +
+          "is one tap, and you can lock it again afterwards.",
         buttons: [
-          { label: "allow sending from this device", onClick: () => { setReceiveOnly(false); openTransfer("holder"); } },
+          { label: "unlock this device", onClick: () => { setKeyLocked(false); openTransfer("holder"); } },
           { label: "not now", quiet: true, onClick: closeTransfer },
         ],
       });
@@ -4140,8 +4159,9 @@ async function keepReceivedKey(peerHex) {
   // behaviour today, the default, and stores what arrived so that
   // the setting is not lost by the device that carried it.
   localStorage.setItem(LOCK_KEY, record.lock || "device");
-  // §8: a device that was given its key does not hand it on until
-  // its owner says it may.
+  // §8: the key arrives locked to this device. Whoever set this
+  // device up did so by holding two devices together once, which is
+  // not the same as deciding this is a place keys leave from.
   localStorage.setItem(RECEIVE_ONLY_KEY, "1");
   recordTransfer({
     ts: Math.floor(Date.now() / 1000),
@@ -4157,33 +4177,31 @@ async function keepReceivedKey(peerHex) {
   location.reload();
 }
 
-// §8's receive-only setting, both ways. A device given its key by
-// another starts out unable to pass it on, and this is what lifts
-// that and what puts it back. Unguarded by design: the specification
-// asks for one tap, and the thing being guarded is a device that
-// already holds the key.
-function setReceiveOnly(only) {
-  if (only) localStorage.setItem(RECEIVE_ONLY_KEY, "1");
+// Both ways, and unguarded in both. The specification asks for one
+// tap, and a lock whose key is in the same room as the door is not
+// made stronger by making it stiff.
+function setKeyLocked(locked) {
+  if (locked) localStorage.setItem(RECEIVE_ONLY_KEY, "1");
   else localStorage.removeItem(RECEIVE_ONLY_KEY);
   renderDeviceSection();
 }
 
 function renderDeviceSection() {
-  const only = receiveOnly();
+  const locked = keyLocked();
   // The state first, then the control that changes it, so what the
   // button does is read in the light of what is true now.
-  aoReceiveOnlyEl.textContent = only
-    ? "This device was given its key by another device, so it doesn't send it on."
-    : "This device can send your key to another device.";
-  aoAllowSendBtn.textContent = only
-    ? "allow sending from this device"
-    : "stop sending from this device";
+  aoReceiveOnlyEl.textContent = locked
+    ? "Your key stays here. This device won't hand it to another one, so the prompt that " +
+      "would send it never comes up. Leave it locked unless you're adding a device from here."
+    : "This device can hand your key to another one, which is what adding a device from here " +
+      "needs. Lock it again afterwards.";
+  aoAllowSendBtn.textContent = locked ? "unlock this device" : "lock key to this device";
   renderTransfers();
 }
 
 aoAddDeviceBtn.addEventListener("click", () => openTransfer("holder"));
 aoFromDeviceBtn.addEventListener("click", () => openTransfer("joiner"));
-aoAllowSendBtn.addEventListener("click", () => setReceiveOnly(!receiveOnly()));
+aoAllowSendBtn.addEventListener("click", () => setKeyLocked(!keyLocked()));
 
 /* ============================================================
    startup

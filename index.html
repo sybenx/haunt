@@ -575,6 +575,13 @@ input{font:inherit;color:inherit;background:none;border:none}
    when pressed, which left somebody with no way to tell whether it
    had worked and no way back. */
 .sendState{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+/* Named in both states, so the control is findable when it is off as
+   well as on. The section's own label styling, because it is the same
+   kind of thing one level down. */
+.sendState .lbl{
+  font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
+  margin-bottom:8px;
+}
 .sendState .secNote{margin:0 0 8px}
 /* One line per past transfer, in the same shape as the relay rows
    above it, because it is the same kind of list: a short record of
@@ -706,6 +713,7 @@ input{font:inherit;color:inherit;background:none;border:none}
         up before your key moves.</div>
       <button class="pillBtn" id="aoAddDevice">add a device</button>
       <div class="sendState">
+        <div class="lbl">lock key to this device</div>
         <div class="secNote" id="aoReceiveOnly"></div>
         <button class="pillBtn" id="aoAllowSend"></button>
       </div>
