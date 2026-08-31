@@ -36,6 +36,13 @@ already publish rather than asking for it again. Nobody joins as a string of hex
 short pubkey that still appears is only ever a member whose name has not reached this
 device yet.
 
+The name a person goes by in the group is theirs to choose and is not their nostr
+profile. Hearth reads that profile once, to save somebody arriving with an identity from
+typing a name they have already published, and then leaves it alone in both directions:
+it never writes to it, and a name changed in the group is never reverted by a profile
+updated somewhere else. The group's copy lives in an event scoped to the group, so one
+key can be called different things in two of them.
+
 A member moves their identity to a second device by showing a code on one screen and
 scanning it with the other. The code carries a temporary public key rather than the
 identity itself, so photographing it achieves nothing; the device that already holds the

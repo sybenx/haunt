@@ -913,19 +913,29 @@ function sendEvent(event) {
 function subscribe() {
   ws.send(JSON.stringify(["REQ", SUB_ID,
     { kinds: [KINDS.CHAT], "#h": [GROUP_ID], limit: 50 },
-    { kinds: [KINDS.MEMBER], "#h": [GROUP_ID] },
+    // `d` is a single-letter tag, so the relay indexes it and asking
+    // for it costs no more than the `h` beside it.
+    { kinds: [KINDS.MEMBER], "#h": [GROUP_ID], "#d": [MEMBER_D] },
+    // The two kind 0s worth reading, both as fallbacks and neither
+    // ever written: the group profiles hearth published itself before
+    // MEMBER existed, and this identity's own global profile, which
+    // is what a name is seeded from at EOSE. A filter that names no
+    // group is answered with the group's events left out, so the
+    // second of these cannot stand in for the first.
+    { kinds: [KINDS.PROFILE], "#h": [GROUP_ID] },
+    { kinds: [KINDS.PROFILE], authors: [identity.pubkey] },
     { kinds: [KINDS.CALL_PRESENCE], "#h": [GROUP_ID] },
     { kinds: [KINDS.CALL_SIGNAL], "#h": [GROUP_ID], "#p": [identity.pubkey] },
   ]));
   // A name from the landing screen has had nowhere to go until now,
   // and every way into the group ends here: redeemed an invite,
   // walked in as a member, or came back after an auth. A relay that
-  // wants AUTH first refuses the profile, and the outbox sends it
-  // again once the auth lands.
+  // wants AUTH first refuses the name, and the outbox sends it again
+  // once the auth lands.
   if (pendingName) {
     const name = pendingName;
     pendingName = null;
-    publishProfileName(name);
+    publishMemberName(name);
   }
 }
 
@@ -935,7 +945,8 @@ async function handleFrame(frame, relayUrl, epoch) {
   if (type === "EVENT" && frame[1] === SUB_ID) {
     const event = frame[2];
     if (event.kind === KINDS.CHAT) renderIncoming(event);
-    else if (event.kind === KINDS.MEMBER) handleProfile(event);
+    else if (event.kind === KINDS.MEMBER) recordName(memberNames, event);
+    else if (event.kind === KINDS.PROFILE) recordName(profileNames, event);
     else if (event.kind === KINDS.CALL_PRESENCE) handlePresence(event);
     else if (event.kind === KINDS.CALL_SIGNAL) handleSignal(event);
     return;
@@ -945,6 +956,7 @@ async function handleFrame(frame, relayUrl, epoch) {
     if (authState === "authed" || authState === "none") {
       setStatus("connected", "lit");
     }
+    seedNameFromProfile();
     return;
   }
 
@@ -1021,14 +1033,14 @@ async function handleFrame(frame, relayUrl, epoch) {
       return;
     }
 
-    if (entry.kind === "profile") {
+    if (entry.kind === "name") {
       if (ok) {
         outbox.delete(eventId);
       } else if (message && message.startsWith("auth-required") && authState !== "failed") {
         entry.lastReason = message;
       } else {
         outbox.delete(eventId);
-        showBanner("your name wasn't saved: " + (message || "no reason given"));
+        if (!entry.quiet) showBanner("your name wasn't saved: " + (message || "no reason given"));
       }
       return;
     }
@@ -1080,7 +1092,7 @@ async function handleFrame(frame, relayUrl, epoch) {
 }
 
 /* ============================================================
-   profiles — who each pubkey asked to be called in this group
+   names — what each pubkey asked to be called in this group
 
    A kind 30078 with the group in its `d`, tagged into the group so
    only the group can read it. Deliberately not a kind 0: that one is
@@ -1090,22 +1102,49 @@ async function handleFrame(frame, relayUrl, epoch) {
    already has a kind 0 on the public relays, that is a collision
    waiting rather than a hypothetical one.
 
-   Addressable, so the newest wins; the map tracks created_at to keep
+   Addressable, so the newest wins; each map tracks created_at to keep
    an old one arriving late from clobbering a rename.
+
+   Kind 0 is still read, and only ever read. Members named themselves
+   here before this kind existed and hearth wrote those names into
+   kind 0s that are still on the relay, so a name hearth has not been
+   given any other way is taken from one rather than lost.
    ============================================================ */
-const profiles = new Map(); // pubkey -> { name, at }
+
+// NIP-78 keys an addressable event by (pubkey, kind, d), and `d` is
+// the only part of that key a client chooses. Kind 30078 is where all
+// of nostr keeps application data, so the value has to say hearth as
+// well as which group: a bare group id would collide with whatever
+// some other application filed under the same one, and the group id
+// on the end is what keeps two groups on one relay apart.
+const MEMBER_D = "hearth.member." + GROUP_ID;
+
+const memberNames = new Map(); // pubkey -> { name, at }, from a kind 30078
+const profileNames = new Map(); // pubkey -> { name, at }, from a kind 0
+
+// The name somebody chose in this group, or the one a kind 0 happens
+// to carry, or nothing at all. In that order: the group's name is
+// theirs to set and a profile written somewhere else never overrules
+// it.
+function knownName(pubkey) {
+  const entry = memberNames.get(pubkey) || profileNames.get(pubkey);
+  return entry ? entry.name : null;
+}
 
 function displayName(pubkey) {
-  const p = profiles.get(pubkey);
-  return p ? p.name : shortName(pubkey);
+  return knownName(pubkey) || shortName(pubkey);
 }
 
 function initials(pubkey) {
-  const p = profiles.get(pubkey);
-  return (p ? p.name : shortName(pubkey)).slice(0, 2);
+  return displayName(pubkey).slice(0, 2);
 }
 
-function handleProfile(event) {
+// Both kinds carry the name the same way, as a JSON object with a
+// name in it, so one reader takes either apart. The object rather
+// than a bare string is for what comes next: what somebody looks like
+// in a room is the thing most likely to grow a second field, and a
+// second field beats a second kind.
+function recordName(map, event) {
   let name;
   try {
     name = JSON.parse(event.content).name;
@@ -1113,16 +1152,34 @@ function handleProfile(event) {
     return;
   }
   if (typeof name !== "string" || name.trim() === "") return;
-  const existing = profiles.get(event.pubkey);
+  const existing = map.get(event.pubkey);
   if (existing && existing.at >= event.created_at) return;
-  profiles.set(event.pubkey, { name: name.trim(), at: event.created_at });
-  applyProfile(event.pubkey);
+  map.set(event.pubkey, { name: name.trim(), at: event.created_at });
+  applyName(event.pubkey);
+}
+
+// Once, when the room has finished saying who everybody is: a member
+// with no name of their own here takes the one their kind 0 carries.
+// That is an existing member, whose name hearth itself wrote into a
+// kind 0 before this kind existed, and it is equally somebody signing
+// in with a key that has a real profile behind it.
+//
+// Seeding, not syncing. After this the kind 0 is never read for this
+// person again, because a name changed in the group must not be
+// reverted months later by a profile updated somewhere else. The
+// publish below fills memberNames in as it goes, so a second EOSE —
+// a reconnect, a relay that wanted AUTH first — finds nothing to do.
+function seedNameFromProfile() {
+  if (!identity || memberNames.has(identity.pubkey)) return;
+  const profile = profileNames.get(identity.pubkey);
+  if (!profile) return;
+  publishMemberName(profile.name, { quiet: true });
 }
 
 // Message rows already on screen were rendered before this name
 // arrived (or under an older one) — restyle them in place. The
 // hearth rebuilds itself wholesale, so one render call covers it.
-function applyProfile(pubkey) {
+function applyName(pubkey) {
   for (const el of document.querySelectorAll('[data-name-for="' + pubkey + '"]')) {
     el.textContent = displayName(pubkey);
   }
@@ -1311,22 +1368,27 @@ function refuseJoin(message) {
 }
 
 /* ---------- publishing a name: the landing screen and the overlay share this ---------- */
-async function publishProfileName(name) {
-  profiles.set(identity.pubkey, { name, at: Math.floor(Date.now() / 1000) });
-  applyProfile(identity.pubkey);
+// `quiet` is a name nobody typed — one seeded from a kind 0 — and it
+// is the difference between the two things that can go wrong. A name
+// somebody just chose failing to save is worth a banner; a carried-over
+// one failing is not, because the kind 0 it came from goes on standing
+// in and there is nothing for anyone to do about it.
+async function publishMemberName(name, opts) {
+  memberNames.set(identity.pubkey, { name, at: Math.floor(Date.now() / 1000) });
+  applyName(identity.pubkey);
   const event = await finalizeEvent({
     kind: KINDS.MEMBER,
-    // Both tags, and they carry the same value for different readers.
-    // `h` is what files this in the relay's members-only partition, the
-    // way every other event Hearth writes is filed. `d` is what makes
-    // the event addressable, which is the whole point of not being a
-    // kind 0: this name is keyed by the group as well as by the key
-    // that signed it, and a member's real nostr profile has nowhere to
-    // land on top of it.
-    tags: [["h", GROUP_ID], ["d", GROUP_ID]],
+    // Both tags, and each is read by something different. `h` is what
+    // files this in the relay's members-only partition, the way every
+    // other event hearth writes is filed. `d` is what makes the event
+    // addressable, which is the whole point of not being a kind 0:
+    // this name is keyed by the group as well as by the key that
+    // signed it, and a member's real nostr profile has nowhere to land
+    // on top of it.
+    tags: [["h", GROUP_ID], ["d", MEMBER_D]],
     content: JSON.stringify({ name }),
   });
-  outbox.set(event.id, { kind: "profile", event });
+  outbox.set(event.id, { kind: "name", event, quiet: !!(opts && opts.quiet) });
   sendEvent(event);
 }
 
@@ -2439,7 +2501,8 @@ function switchRelay(url) {
   try { if (ws) ws.close(); } catch (e) {}
   outbox.clear();
   seenIds.clear();
-  profiles.clear();
+  memberNames.clear();
+  profileNames.clear();
   call.presence.clear();
   msgsEl.innerHTML = "";
   halted = false;
@@ -2455,7 +2518,7 @@ function switchRelay(url) {
 
 function openAccount() {
   renderAccountChrome();
-  aoNameInput.value = (profiles.get(identity.pubkey) || {}).name || "";
+  aoNameInput.value = knownName(identity.pubkey) || "";
   aoPubkeyEl.textContent = identity.pubkey;
   renderRelayList();
   if (isOwner) refreshInviteList();
@@ -2473,7 +2536,7 @@ document.addEventListener("keydown", (e) => {
 aoNameSaveBtn.addEventListener("click", () => {
   const name = aoNameInput.value.trim();
   if (!name) return;
-  publishProfileName(name);
+  publishMemberName(name);
   aoNameSaveBtn.textContent = "saved";
   setTimeout(() => { aoNameSaveBtn.textContent = "save"; }, 1500);
 });
