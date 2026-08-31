@@ -296,9 +296,11 @@ async function extensionIdentitySource() {
    ============================================================ */
 const NAME_LOOKUP_RELAYS = [
   // purplepag.es exists to hold exactly these two kinds and answers
-  // fastest; the others are there for somebody whose profile never
-  // reached it.
+  // fastest. nostr.band indexes broadly, which is what finds somebody
+  // whose profile lives nowhere anybody would have guessed. The rest
+  // are big enough to be worth asking.
   "wss://purplepag.es",
+  "wss://relay.nostr.band",
   "wss://relay.damus.io",
   "wss://nos.lol",
   "wss://relay.primal.net",
@@ -335,7 +337,15 @@ function queryRelay(url, filters) {
       let frame;
       try { frame = JSON.parse(e.data); } catch (err) { return; }
       if (frame[0] === "EVENT" && frame[1] === "look") found.push(frame[2]);
+      // EOSE is a relay that answered. CLOSED is a relay that would
+      // rather not — it wants AUTH, or it rate-limited the sub — and
+      // hearth has nothing to offer it: signing an auth event for a
+      // relay this group has no business with would hand that relay a
+      // signature for the privilege of being refused. Both mean this
+      // relay is done, and waiting the full timeout out on a refusal
+      // only delays the ones that did answer.
       else if (frame[0] === "EOSE" && frame[1] === "look") finish();
+      else if (frame[0] === "CLOSED" && frame[1] === "look") finish();
     });
     socket.addEventListener("error", finish);
     socket.addEventListener("close", finish);
