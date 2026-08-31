@@ -571,9 +571,24 @@ input{font:inherit;color:inherit;background:none;border:none}
 }
 .xInner .choiceRow{justify-content:center}
 .xFail{font-size:12.5px;line-height:1.5;color:var(--live)}
-.xAlt{
+/* The quieter ways through, stacked under whatever the screen is
+   mainly about. Scanning is the obvious path and stays the loud one;
+   copying a link sits down here for the pair of devices that has no
+   camera between them. */
+.xAlts{display:flex;flex-direction:column;align-items:center;gap:2px}
+.xAlts button{
   background:none;color:var(--dim);font-size:12.5px;padding:6px;
   text-decoration:underline;text-underline-offset:3px;
+}
+.xPasteRow{display:flex;gap:8px;width:100%}
+.xPasteRow input{
+  flex:1;min-width:0;background:var(--raise);border:1px solid var(--line2);
+  border-radius:10px;padding:11px 12px;font-size:13px;color:var(--ink);
+}
+.xPasteRow input::placeholder{color:var(--faint)}
+.xPasteRow button{
+  padding:11px 14px;border-radius:10px;font-size:13px;
+  background:var(--raise2);border:1px solid var(--line2);color:var(--ink);
 }
 .xSpin{font-size:12px;color:var(--faint)}
 /* Said only once it has been long enough to be true. A transfer that
@@ -799,7 +814,12 @@ input{font:inherit;color:inherit;background:none;border:none}
     <div class="xSpin" id="xSpin" hidden></div>
     <div class="xSlow" id="xTransport" hidden></div>
     <p class="xFail" id="xFail" hidden></p>
-    <button class="xAlt" id="xAlt" hidden></button>
+    <div class="xPasteRow" id="xPasteRow" hidden>
+      <input id="xPasteInput" type="text" autocomplete="off" spellcheck="false"
+        placeholder="the link from your other device">
+      <button id="xPasteGo">use this link</button>
+    </div>
+    <div class="xAlts" id="xAlts"></div>
   </div>
 </div>
 

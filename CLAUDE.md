@@ -70,11 +70,16 @@ the room are not theirs to hold. See `reference/push.md` for the relay's half.
 
 A member moves their identity to a second device by showing a code on one screen and
 scanning it with the other, using whatever the scanning phone already points at a code
-with. The code is an ordinary web link to the copy of Hearth that drew it, carrying the
-pairing details in its fragment, because a camera app hands a scheme no app has claimed
-to a web search rather than to anything useful. The fragment keeps those details out of
-every request log on the way. What they amount to is a temporary public key rather than
-the identity itself, so photographing the code achieves nothing.
+with. Two devices with no camera between them copy the link the code stands for and
+paste it into the other, which is the same bytes carried by hand; the specification's
+typed three-word code is not implemented, because copying covers that case with none of
+its machinery. Either way the two devices are meant to be in front of the person at
+once, which is why neither is described as sending anything anywhere. The code is an
+ordinary web link to the copy of Hearth that drew it, carrying the pairing details in
+its fragment, because a camera app hands a scheme no app has claimed to a web search
+rather than to anything useful. The fragment keeps those details out of every request
+log on the way. What they amount to is a temporary public key rather than the identity
+itself, so photographing the code achieves nothing.
 
 Both screens then show the same four emoji, derived from both temporary keys and from a
 random number each device committed to before it saw the other's, and the person

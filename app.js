@@ -3,7 +3,8 @@
    voice call, and the way in: invite links the owner mints inside
    the app, redeemed on arrival. One group conversation, one group
    call; private conversations and their private calls come later.
-   No QR device pairing, no video, no screen share yet. Event
+   An identity reaches a second device by QR or by the link behind
+   it, which is keyxfer.js. No video, no screen share yet. Event
    kinds live in kinds.js.
    ============================================================ */
 
@@ -86,7 +87,10 @@ const xButtonsEl = document.getElementById("xButtons");
 const xSpinEl = document.getElementById("xSpin");
 const xTransportEl = document.getElementById("xTransport");
 const xFailEl = document.getElementById("xFail");
-const xAltBtn = document.getElementById("xAlt");
+const xAltsEl = document.getElementById("xAlts");
+const xPasteRowEl = document.getElementById("xPasteRow");
+const xPasteInput = document.getElementById("xPasteInput");
+const xPasteGoBtn = document.getElementById("xPasteGo");
 const newInviteBtn = document.getElementById("newInviteBtn");
 const inviteLinkRowEl = document.getElementById("inviteLinkRow");
 const inviteLinkTextEl = document.getElementById("inviteLinkText");
@@ -3552,6 +3556,97 @@ function watchTransport() {
   }, 1000);
 }
 
+/* ---------- pairing without a camera on either device ----------
+
+   The code already encodes an ordinary link, so a pair of devices
+   with no camera between them can move the same bytes by hand. This
+   is the substitution the specification describes for its typed
+   pairing code, where only the pairing step changes: the burners, the
+   commitment, the emoji both screens compare and the prompt that
+   releases the key are untouched by how the link got across.
+
+   Safe for the reason a photographed code is safe. What travels is a
+   temporary public key, which way the key is meant to go, and some
+   relay addresses, and none of that is a secret.
+
+   Said as pasting into the device in front of you, and never as
+   sending. A code held up to a camera meant both devices were in the
+   same room and a link does not, and while the emoji comparison is
+   what actually settles whether the far end is the right device, a
+   flow that invites somebody to message a link to themselves leaves
+   that comparison holding everything up alone. People tap past
+   comparisons. */
+function copyPairingLink() {
+  if (!xfer || !xfer.uri) return;
+  const link = pairingLink(xfer.uri).url;
+  const said = (text) => {
+    xPromptEl.textContent = text;
+    xShow(xPromptEl, true);
+  };
+  navigator.clipboard.writeText(link).then(() => {
+    said("Paste it into your other device. It should be the one in front of you, because " +
+      "the emoji you compare next are what prove it's yours.");
+  }).catch(() => {
+    // Clipboard refused, which some browsers do outside a gesture
+    // they like the look of. The link itself is the fallback: shown,
+    // selected, and copyable by hand.
+    xPasteInput.value = link;
+    xShow(xPasteRowEl, true);
+    // The row is borrowed to show the link, not to take one, so the
+    // button that would consume it goes. This device pasting its own
+    // link into itself is nobody's transfer.
+    xShow(xPasteGoBtn, false);
+    xPasteInput.select();
+    said("Copy this and paste it into your other device, the one in front of you.");
+  });
+}
+
+function offerPaste() {
+  stopCamera();
+  xRender({
+    title: xferRole === "holder" ? "add a device" : "your new device",
+    note: "Paste the link from your other device. It should be the one in front of you, " +
+      "because the emoji you compare next are what prove it's yours.",
+    alts: [
+      { label: "use the camera instead", onClick: beginScanning },
+      { label: "show a code instead", onClick: beginShowing },
+    ],
+  });
+  xShow(xPasteRowEl, true);
+  xShow(xPasteGoBtn, true);
+  xPasteInput.value = "";
+  xPasteInput.focus();
+}
+
+// The pasted link goes through the one reader the camera and the page
+// load already use, so a link that would work scanned works pasted,
+// and one that would not is refused in the same words.
+function usePastedLink() {
+  const text = xPasteInput.value.trim();
+  if (!text) return;
+  let scanned;
+  try {
+    scanned = readPairingCode(text);
+  } catch (err) {
+    xFail(err.message);
+    return;
+  }
+  const wantMode = xferRole === "holder" ? "offer" : "request";
+  if (scanned.mode !== wantMode) {
+    xFail("that link is from a device in the same position as this one, so neither of you " +
+      "would be receiving anything");
+    return;
+  }
+  xShow(xPasteRowEl, false);
+  xShow(xPasteGoBtn, true);
+  beginScanned(scanned);
+}
+
+xPasteGoBtn.addEventListener("click", usePastedLink);
+xPasteInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") usePastedLink();
+});
+
 /* ---------- a scanner that says what it is seeing ----------
 
    It used to go quiet. Every way out of the scan loop except a
@@ -3682,11 +3777,21 @@ function xRender(opts) {
   xSpinEl.textContent = opts.waiting || "";
   xShow(xSpinEl, !!opts.waiting);
   xShow(xFailEl, false);
-  if (opts.alt) {
-    xAltBtn.textContent = opts.alt.label;
-    xAltBtn.onclick = opts.alt.onClick;
+  // A list rather than one, because a screen can have more than one
+  // quieter way through it: scanning has both showing a code and
+  // pasting a link underneath it.
+  xAltsEl.innerHTML = "";
+  for (const alt of opts.alts || []) {
+    const btn = document.createElement("button");
+    btn.textContent = alt.label;
+    btn.addEventListener("click", alt.onClick);
+    xAltsEl.appendChild(btn);
   }
-  xShow(xAltBtn, !!opts.alt);
+  // Every screen starts without the link row, and with the button
+  // that consumes one restored, since copying borrows the row and
+  // takes that button away.
+  xShow(xPasteRowEl, false);
+  xShow(xPasteGoBtn, true);
 }
 
 function xFail(message) {
@@ -3841,10 +3946,11 @@ function beginShowing() {
       ? "Scan this with the device that already has your identity."
       : "Scan this with the device you're adding.",
     waiting: "waiting for your other device",
-    alt: {
-      label: "scan the code it shows instead",
-      onClick: () => { if (xfer) xfer.cancel(); beginScanning(); },
-    },
+    alts: [
+      { label: "scan the code it shows instead",
+        onClick: () => { if (xfer) xfer.cancel(); beginScanning(); } },
+      { label: "copy the link instead", onClick: copyPairingLink },
+    ],
   });
   xfer = Keyxfer.startSession({
     role: xferRole,
@@ -3884,10 +3990,10 @@ function beginScanning() {
     note: "Point this at the code on your other device.",
     camera: true,
     waiting: "looking for a code",
-    alt: {
-      label: "show a code instead",
-      onClick: () => { stopCamera(); beginShowing(); },
-    },
+    alts: [
+      { label: "show a code instead", onClick: () => { stopCamera(); beginShowing(); } },
+      { label: "paste a link instead", onClick: offerPaste },
+    ],
   });
   let taken = false;
   watchScan();
@@ -3922,7 +4028,10 @@ function beginScanning() {
     xRender({
       title: xferRole === "holder" ? "add a device" : "your new device",
       note: "Hearth couldn't use the camera on this device: " + err.message,
-      buttons: [{ label: "show a code instead", onClick: beginShowing }],
+      buttons: [
+        { label: "show a code instead", onClick: beginShowing },
+        { label: "paste a link instead", quiet: true, onClick: offerPaste },
+      ],
     });
   });
 }
