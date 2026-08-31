@@ -3234,6 +3234,7 @@ function renderTransfers() {
    other device, and a version this build does not know is still
    refused by the same line of code. */
 const PAIR_PARAM = "pair";
+const PAIR_SCHEME = "nostr+keyxfer://";
 
 // The inverse of pairingLink, and the only thing in hearth that
 // decides what a device code looks like. Both readers go through it:
@@ -3249,16 +3250,37 @@ const PAIR_PARAM = "pair";
 // specification is written about, unchanged.
 function innerPairingUri(text) {
   const trimmed = (text || "").trim();
-  if (trimmed.startsWith("nostr+keyxfer://")) return trimmed;
-  let url;
+  if (trimmed.startsWith(PAIR_SCHEME)) return trimmed;
+  let hash;
   try {
-    url = new URL(trimmed);
+    hash = new URL(trimmed).hash;
   } catch (err) {
     throw new Error("that code isn't a hearth device code");
   }
-  const inner = new URLSearchParams(url.hash.slice(1)).get(PAIR_PARAM);
+  const inner = pairFromFragment(hash.slice(1));
   if (!inner) throw new Error("that code isn't a hearth device code");
   return inner;
+}
+
+// Everything after the marker, to the end. Not URLSearchParams,
+// because the URI is now carried unescaped and its own ampersands
+// would look like the end of it to a parser that split on them.
+//
+// A code written by an older build arrives percent-encoded instead,
+// and is still read: unescaping something that needs no unescaping
+// leaves it alone, so one line covers both and a pair of devices on
+// different builds still pairs.
+function pairFromFragment(fragment) {
+  const at = (fragment || "").indexOf(PAIR_PARAM + "=");
+  if (at === -1) return null;
+  const raw = fragment.slice(at + PAIR_PARAM.length + 1);
+  if (raw.startsWith(PAIR_SCHEME)) return raw;
+  try {
+    const decoded = decodeURIComponent(raw);
+    return decoded.startsWith(PAIR_SCHEME) ? decoded : null;
+  } catch (err) {
+    return null;
+  }
 }
 
 // The pairing a code names, or a refusal somebody can read.
@@ -3278,10 +3300,16 @@ function isLoopback(host) {
 function pairingLink(uri) {
   const http = location.protocol === "https:" || location.protocol === "http:";
   if (!http) return { url: uri, reachable: false, reason: "file" };
-  const params = new URLSearchParams();
-  params.set(PAIR_PARAM, uri);
   return {
-    url: location.origin + location.pathname + "#" + params.toString(),
+    // The URI goes in as itself. Every character it contains — the
+    // plus, the colons, the slashes, the query's own separators — is
+    // legal in a fragment, so escaping them a second time bought
+    // nothing and cost around sixty characters, which is a whole QR
+    // version's worth of density on a code somebody has to point a
+    // camera at. It goes last so that reading it back is everything
+    // after the marker, which is what makes an unescaped ampersand
+    // inside it harmless.
+    url: location.origin + location.pathname + "#" + PAIR_PARAM + "=" + uri,
     // A loopback address means something on this machine and nothing
     // at all on the phone being pointed at it, so a code built here
     // cannot be followed. Said on screen rather than left to fail as
@@ -3320,13 +3348,31 @@ function drawQr(canvas, text) {
 }
 
 let camera = null; // { stream, raf }
+/* What the scanner has actually seen, which is the thing that was
+   missing when it went quiet. Every frame is counted, every decode is
+   counted, and whatever came out of the last one is kept, so that a
+   scanner which finds nothing can say which kind of nothing it is:
+   no picture at all from the camera, a picture with no code in it, or
+   a code it read and could not use. Those three look identical from
+   the outside and have completely different fixes. */
+let scanStats = null;
+let scanTimer = null;
 
 // jsQR rather than the browser's own BarcodeDetector, which Safari
 // does not have and Safari is the browser somebody adding an
 // iPhone is holding.
 async function startCamera(onText) {
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "environment" },
+    // Asked for more pixels than the default, because how well a code
+    // reads comes down to how many pixels fall across one of its
+    // squares, and a default capture is often 640 across. Ideal
+    // rather than required: a camera that cannot manage it should
+    // give what it has rather than refuse outright.
+    video: {
+      facingMode: "environment",
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+    },
     audio: false,
   });
   xVideoEl.srcObject = stream;
@@ -3335,21 +3381,44 @@ async function startCamera(onText) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   camera = { stream, raf: 0 };
+  scanStats = {
+    startedAt: Date.now(), frames: 0, decodes: 0,
+    width: 0, height: 0, lastText: null, lastReason: null,
+  };
   const look = () => {
     if (!camera) return;
     camera.raf = requestAnimationFrame(look);
     const w = xVideoEl.videoWidth, h = xVideoEl.videoHeight;
+    // No dimensions means the camera opened and is sending nothing.
+    // Counted rather than returned from in silence, because this used
+    // to be indistinguishable from a code that would not read.
     if (!w || !h) return;
+    scanStats.frames++;
+    scanStats.width = w;
+    scanStats.height = h;
     canvas.width = w;
     canvas.height = h;
+    // The whole frame, so nothing is cropped away: a code the person
+    // has centred is in here whatever the aspect ratio works out to.
     ctx.drawImage(xVideoEl, 0, 0, w, h);
     const found = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: "dontInvert" });
-    if (found && found.data) onText(found.data);
+    if (!found || !found.data) return;
+    scanStats.decodes++;
+    if (found.data !== scanStats.lastText) {
+      // Logged once per distinct string rather than per frame, which
+      // at sixty frames a second is the difference between a record
+      // and a flood.
+      scanStats.lastText = found.data;
+      console.info("hearth: scanner read a code,", found.data.length, "characters:",
+        found.data.slice(0, 160));
+    }
+    onText(found.data);
   };
   look();
 }
 
 function stopCamera() {
+  clearInterval(scanTimer);
   if (!camera) return;
   cancelAnimationFrame(camera.raf);
   for (const track of camera.stream.getTracks()) track.stop();
@@ -3457,6 +3526,63 @@ function watchTransport() {
       again.textContent = "start again";
       again.addEventListener("click", retryTransfer);
       xButtonsEl.appendChild(again);
+    }
+  }, 1000);
+}
+
+/* ---------- a scanner that says what it is seeing ----------
+
+   It used to go quiet. Every way out of the scan loop except a
+   successful read was a bare return, so a camera sending no picture
+   and a code that would not decode produced exactly the same thing on
+   screen: nothing at all, indefinitely. Whichever of those is
+   happening, the person holding the phone can now see which. */
+const SCAN_NO_PICTURE_MS = 4000;  // a camera that has sent no frame
+const SCAN_LOOKING_MS = 10000;    // frames, but nothing read yet
+const SCAN_STUCK_MS = 25000;      // long enough to offer another way
+
+function watchScan() {
+  clearInterval(scanTimer);
+  let offered = false;
+  scanTimer = setInterval(() => {
+    if (!camera || !scanStats) { clearInterval(scanTimer); return; }
+    const waited = Date.now() - scanStats.startedAt;
+    let message = null;
+    let actionable = false;
+
+    if (scanStats.lastReason) {
+      // Already said on screen by xFail, and it is a real answer
+      // rather than a silence, so this stays out of the way.
+      message = null;
+    } else if (scanStats.frames === 0) {
+      if (waited >= SCAN_NO_PICTURE_MS) {
+        message = "The camera is on but isn't sending a picture. On some phones another app " +
+          "still has it open.";
+        actionable = waited >= SCAN_LOOKING_MS;
+      }
+    } else if (scanStats.decodes === 0) {
+      if (waited >= SCAN_STUCK_MS) {
+        message = "Hearth can see through the camera but hasn't been able to read the code. " +
+          "Try filling more of the picture with it, or showing a code from this device instead.";
+        actionable = true;
+      } else if (waited >= SCAN_LOOKING_MS) {
+        message = "still looking for a code";
+      }
+    }
+
+    if (!message) {
+      xShow(xTransportEl, false);
+      return;
+    }
+    xTransportEl.textContent = message;
+    xShow(xTransportEl, true);
+    if (actionable && !offered) {
+      offered = true;
+      console.info("hearth: scanner has found nothing", JSON.stringify(scanStats));
+      const swap = document.createElement("button");
+      swap.textContent = "show a code instead";
+      swap.addEventListener("click", () => { stopCamera(); beginShowing(); });
+      xButtonsEl.appendChild(swap);
     }
   }, 1000);
 }
@@ -3576,7 +3702,7 @@ xCloseBtn.addEventListener("click", closeTransfer);
    has to be guessed from what this device happens to hold.
    ============================================================ */
 function pendingPairing() {
-  if (!parseFragment().get(PAIR_PARAM)) return null;
+  if (!pairFromFragment(location.hash.slice(1))) return null;
   try {
     // The whole address, through the same reader the camera uses.
     const scanned = readPairingCode(location.href);
@@ -3593,9 +3719,11 @@ function pendingPairing() {
 // transfer again, and a bookmark of this page should not carry
 // somebody's pairing parameters around.
 function consumePairing() {
-  const params = parseFragment();
-  params.delete(PAIR_PARAM);
-  const rest = params.toString();
+  // Cut from the marker to the end, which is where the URI is, and
+  // tidy the separator it leaves behind.
+  const fragment = location.hash.slice(1);
+  const at = fragment.indexOf(PAIR_PARAM + "=");
+  const rest = (at === -1 ? fragment : fragment.slice(0, at)).replace(/&$/, "");
   history.replaceState(null, "", location.pathname + location.search + (rest ? "#" + rest : ""));
 }
 
@@ -3740,12 +3868,17 @@ function beginScanning() {
     },
   });
   let taken = false;
+  watchScan();
   startCamera((text) => {
     if (taken) return;
     let scanned;
     try {
       scanned = readPairingCode(text);
     } catch (err) {
+      // Read something, cannot use it. Kept on the stats as well as
+      // on screen, so the watcher below stops saying it is still
+      // looking when it has in fact found and refused something.
+      scanStats.lastReason = err.message;
       xFail(err.message);
       return;
     }
@@ -3753,11 +3886,14 @@ function beginScanning() {
     // device in the same role, which is nobody's transfer.
     const wantMode = xferRole === "holder" ? "offer" : "request";
     if (scanned.mode !== wantMode) {
-      xFail("that code is from a device in the same position as this one, so neither of you " +
-        "would be receiving anything");
+      const why = "that code is from a device in the same position as this one, so neither " +
+        "of you would be receiving anything";
+      scanStats.lastReason = why;
+      xFail(why);
       return;
     }
     taken = true;
+    console.info("hearth: scanner accepted a code after", scanStats.frames, "frames");
     stopCamera();
     beginScanned(scanned);
   }).catch((err) => {
