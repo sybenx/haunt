@@ -65,6 +65,11 @@ body{
 }
 button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 input{font:inherit;color:inherit;background:none;border:none}
+/* Said to a screen reader, drawn nowhere. */
+.srOnly{
+  position:absolute;width:1px;height:1px;margin:-1px;padding:0;
+  overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0;
+}
 :focus-visible{outline:2px solid var(--ember);outline-offset:2px;border-radius:4px}
 
 .stage{
@@ -492,9 +497,17 @@ input{font:inherit;color:inherit;background:none;border:none}
 /* Floating over the conversation once the call view is scrolled away. The
    cross puts the picture away and nothing else: the call carries on,
    and the voice view still has it. */
-.pip{
+/* The frame is the positioned thing and the picture is a button
+   filling it, so that the control that puts the picture away can sit
+   over it as a sibling. Inside the picture's own button it was a
+   button within a button, which is not something a browser or a
+   screen reader can be relied on to make sense of. */
+.pipWrap{
   position:absolute;top:12px;right:12px;z-index:30;
-  width:150px;height:94px;border-radius:14px;overflow:hidden;padding:0;
+  width:150px;height:94px;
+}
+.pip{
+  position:absolute;inset:0;border-radius:14px;overflow:hidden;padding:0;
   border:1px solid rgba(255,190,120,.30);
   box-shadow:0 14px 34px rgba(0,0,0,.6);
   background:#05070a;
@@ -513,7 +526,7 @@ input{font:inherit;color:inherit;background:none;border:none}
 .pipX{
   position:absolute;top:4px;right:4px;z-index:3;width:20px;height:20px;border-radius:50%;
   display:flex;align-items:center;justify-content:center;
-  background:rgba(4,6,9,.6);color:rgba(240,230,215,.8);font-size:11px;line-height:1;
+  background:rgba(4,6,9,.6);color:rgba(240,230,215,.8);font-size:11px;line-height:1;padding:0;
 }
 
 .hCaption{height:18px;margin:14px 0 4px;font-size:12px;color:var(--ember);position:relative}
@@ -870,7 +883,7 @@ input{font:inherit;color:inherit;background:none;border:none}
   .vShrink svg{width:17px;height:17px}
   /* The corner belongs over the conversation, which is the half it
      hands back, and not over the call view. */
-  .pip{left:12px;right:auto}
+  .pipWrap{left:12px;right:auto}
 
   .hearth{
     height:100%;min-height:0;margin-top:0;
@@ -939,7 +952,7 @@ input{font:inherit;color:inherit;background:none;border:none}
     <div class="pillSlot" id="pillSlot"></div>
     <div class="tbTitle">
       <div class="tbName" id="tbName">hearth</div>
-      <div class="tbStatus" id="tbStatus">connecting</div>
+      <div class="tbStatus" id="tbStatus" role="status">connecting</div>
     </div>
     <button class="accountBtn" id="accountBtn" aria-label="you"></button>
   </header>
@@ -1023,11 +1036,13 @@ input{font:inherit;color:inherit;background:none;border:none}
       </button>
     </div>
 
-    <button class="pip" id="pip" hidden>
-      <span class="pipStage" id="pipStage"></span>
-      <span class="pipTag"><span class="dotLive"></span><span id="pipWho"></span></span>
-      <span class="pipX" id="pipX" role="button" aria-label="put the video away">&#215;</span>
-    </button>
+    <div class="pipWrap" id="pipWrap" hidden>
+      <button class="pip" id="pip">
+        <span class="pipStage" id="pipStage"></span>
+        <span class="pipTag"><span class="dotLive"></span><span id="pipWho"></span></span>
+      </button>
+      <button class="pipX" id="pipX" aria-label="put the video away">&#215;</button>
+    </div>
 
     <div class="floaters">
       <button class="mutePill" id="mutePill" hidden>
@@ -1038,6 +1053,8 @@ input{font:inherit;color:inherit;background:none;border:none}
     </div>
   </div>
 </div>
+
+<div class="srOnly" id="announcer" aria-live="polite" aria-atomic="true"></div>
 
 <div class="accountOverlay" id="accountOverlay" hidden>
   <div class="aoHead">

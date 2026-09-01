@@ -41,6 +41,7 @@ const relayInput = document.getElementById("relayInput");
 const relayConnect = document.getElementById("relayConnect");
 const scrollEl = document.getElementById("scroll");
 const msgsEl = document.getElementById("msgs");
+const announcerEl = document.getElementById("announcer");
 const composerEl = document.getElementById("composer");
 const composerGhostEl = document.getElementById("composerGhost");
 const msgInput = document.getElementById("msgInput");
@@ -114,6 +115,7 @@ const vPickEl = document.getElementById("vPick");
 const liveVideoEl = document.getElementById("liveVideo");
 const vMainEl = document.getElementById("vMain");
 const vShrinkBtn = document.getElementById("vShrink");
+const pipWrapEl = document.getElementById("pipWrap");
 const pipEl = document.getElementById("pip");
 const pipStageEl = document.getElementById("pipStage");
 const pipWhoEl = document.getElementById("pipWho");
@@ -1526,6 +1528,22 @@ function appendRow(row, createdAt) {
   if (stick) scrollEl.scrollTop = scrollEl.scrollHeight;
 }
 
+// A screen reader is told what arrived while it was reading something
+// else. One line at a time rather than the conversation itself: a
+// region that grows is a region that gets read from the top again.
+function announce(text) {
+  // A tab nobody is looking at is not being read out either, and the
+  // count and the notification already cover that case. Announcing
+  // into it would queue the backlog up to arrive in one burst when
+  // the tab came back.
+  if (document.hidden) return;
+  announcerEl.textContent = "";
+  // Two identical messages in a row are two announcements only if the
+  // region is seen to change, so the second one is set after a beat
+  // rather than in the same breath as the clearing.
+  setTimeout(() => { announcerEl.textContent = text; }, 50);
+}
+
 function renderIncoming(event) {
   if (seenIds.has(event.id)) return;
   seenIds.add(event.id);
@@ -1535,7 +1553,10 @@ function renderIncoming(event) {
   // Fifty messages of history are not fifty things that just
   // happened, and nothing anybody says is news to the person who
   // said it.
-  if (historyDone && event.pubkey !== identity.pubkey) newsOfMessage(event.pubkey);
+  if (historyDone && event.pubkey !== identity.pubkey) {
+    newsOfMessage(event.pubkey);
+    announce(displayName(event.pubkey) + " said: " + event.content);
+  }
 }
 
 function markSent(el) {
@@ -2777,7 +2798,15 @@ function renderVideo() {
   if (hRingEl.parentNode !== seatsGo) seatsGo.append(hRingEl, hCaptionEl);
   xShow(vStageEl, inWindow);
   vMainEl.hidden = !inHalf;
-  pipEl.hidden = !inCorner;
+  // The picture covers the conversation rather than replacing it, so
+  // that the conversation keeps its place. Covered is not gone: what
+  // is under there would still take the focus and still be read out,
+  // so it is put beyond reach for as long as it cannot be seen. The
+  // call view is elsewhere by now — the wide layout moves it out of
+  // this scroll — so only what the picture is actually over is
+  // affected.
+  scrollEl.toggleAttribute("inert", inHalf);
+  pipWrapEl.hidden = !inCorner;
 
   if (!who) {
     // Nothing to show, so the next thing shown starts full size
@@ -2797,6 +2826,8 @@ function renderVideo() {
   if (home && liveVideoEl.parentNode !== home) home.appendChild(liveVideoEl);
   if (home) liveVideoEl.play().catch(() => {});
   pipWhoEl.textContent = displayName(who);
+  pipEl.setAttribute("aria-label", displayName(who) +
+    (wide ? ", show the picture full size" : ", back to the call"));
   renderPicker();
 }
 
@@ -2821,8 +2852,7 @@ function renderPicker() {
   }
 }
 
-pipXEl.addEventListener("click", (e) => {
-  e.stopPropagation(); // the corner itself carries you back to the call view
+pipXEl.addEventListener("click", () => {
   call.pipPutAway = true;
   renderVideo();
 });
