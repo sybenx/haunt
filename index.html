@@ -47,6 +47,11 @@
   --ember-hot:#ffc07a;
   --ember-deep:#b85f27;
   --live:#ff6d5a;
+  /* The one cool colour at the hearth, and it means somebody is
+     showing something. Cool because red against the fire's orange is
+     the hardest pair for the commonest colour blindness, and this has
+     to be told apart from the ring that means somebody is talking. */
+  --stream:#5ad1ff;
   --serif:Georgia,'Iowan Old Style','Palatino Linotype','Book Antiqua',serif;
   --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
   --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
@@ -314,14 +319,27 @@ input{font:inherit;color:inherit;background:none;border:none}
 .hearth.expanded .hAv{width:64px;height:64px}
 .hearth.expanded .hAv .av{font-size:22px}
 .hAv.speaking .av{box-shadow:0 0 0 2px var(--ember),0 0 18px rgba(255,150,70,.45)}
-/* Whoever is showing something wears a red ring, which is the one
-   colour in here that is not the fire and so cannot be mistaken for
-   talking. Drawn outside the avatar so it sits alongside the speaking
-   ring rather than fighting it for the same pixels. */
-.hAv.sharing::before{
-  content:'';position:absolute;inset:-4px;border-radius:50%;
-  border:2px solid var(--live);box-shadow:0 0 12px rgba(255,109,90,.5);pointer-events:none;
+/* Whoever is showing something wears a different ring, not a second
+   one: this replaces the speaking ring rather than sitting outside it,
+   because two rings on one avatar is what made the last attempt
+   unreadable.
+   
+   It is told apart by four things at once, only one of which is
+   colour. Red on orange is the pair a red-green colour blind person
+   can least tell apart, and that is the commonest kind, so the colour
+   moved to a cool one that no form of colour blindness confuses with
+   the fire — and then the ring was made thicker, dashed rather than
+   solid, and turned slowly, so that somebody who sees no colour
+   difference at all still sees three. The turn is slow enough to read
+   as live rather than as something loading. */
+.hAv.sharing::after{
+  content:'';position:absolute;inset:-7px;border-radius:50%;
+  border:3px dashed var(--stream);
+  animation:streamTurn 7s linear infinite;
+  pointer-events:none;
 }
+.hAv.sharing .av{box-shadow:0 0 0 2px var(--stream),0 0 20px rgba(90,209,255,.4)}
+@keyframes streamTurn{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 /* Somebody with a picture to show is worth tapping. */
 .hAv.sharing{cursor:pointer}
 .hAv.speaking::after{
@@ -366,8 +384,30 @@ input{font:inherit;color:inherit;background:none;border:none}
    below, because starting a screen is the same kind of act as opening
    a microphone and was previously a line of small text underneath
    everything. */
-.micRow{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:4px}
-.callBtns{display:flex;flex-direction:column;gap:10px}
+/* The microphone sits in the middle of the row and nothing put beside
+   it may move it. Three columns, with the outer two sharing whatever
+   is left over equally, so the centre column's centre is the row's
+   centre however wide its neighbours are. The minmax(0,...) is what
+   makes that an invariant rather than a coincidence: without it an
+   over-wide neighbour would grow its own track past its share and
+   shove the microphone across, which is exactly what happened when
+   the first pair of buttons was put next to it. Anything added on
+   either side from now on lands in one of the outer tracks and cannot
+   reach the middle one. */
+.micRow{
+  display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+  align-items:center;margin-top:4px;
+}
+/* Each side is pinned to its own column and the microphone is pinned
+   to the middle one. Pinned rather than left to fall into place,
+   because auto placement fills the first free column: with the
+   flanking buttons hidden, which they are until somebody is at the
+   fire, the microphone would slide into the empty left-hand track. */
+.callBtns{
+  grid-column:1;justify-self:end;margin-right:14px;
+  display:flex;flex-direction:column;gap:10px;
+}
+.micRow .mic{grid-column:2}
 .hearth:not(.youIn):not(.youMuted) .callBtns{display:none}
 .callBtn{
   width:52px;height:52px;border-radius:50%;
@@ -388,18 +428,12 @@ input{font:inherit;color:inherit;background:none;border:none}
 }
 
 .hActions{display:flex;justify-content:center;flex-wrap:wrap;gap:6px}
-/* The one thing worth asking before a screen goes out, asked once and
-   in two words. A screen of code and a screen of a game want opposite
-   things from the encoder and nothing can work out which this is. */
-.sharePick{margin-top:8px;display:flex;flex-direction:column;align-items:center;gap:6px}
-.shareChoices{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
-.shareChoices button{
-  font-size:12px;padding:7px 14px;border-radius:999px;
-  background:var(--raise2);border:1px solid var(--line2);color:var(--ink);
-}
-.shareChoices button.on{border-color:rgba(255,158,90,.55);color:var(--ember)}
 .hearth:not(.youIn):not(.youMuted) .hActions{display:none}
-.hAv .badge.sharingB{background:var(--raise2);color:var(--ember)}
+/* And a glyph, because a ring says that something is happening and
+   this says what: a screen or a face. It also survives a screenshot,
+   which the turning does not. */
+.hAv .badge.sharingB{background:#0d2430;border-color:rgba(90,209,255,.45);color:var(--stream)}
+.hAv .badge.sharingB svg{width:11px;height:11px}
 
 /* Floating over the conversation once the fire is scrolled away. The
    cross puts the picture away and nothing else: the call carries on,
@@ -801,13 +835,6 @@ input{font:inherit;color:inherit;background:none;border:none}
         <div class="micHint" id="micHint"></div>
         <div class="hActions">
           <button class="leaveBtn" id="leaveBtn">leave</button>
-        </div>
-        <div class="sharePick" id="sharePick" hidden>
-          <div class="shareChoices">
-            <button id="shareAutoBtn">follow the picture</button>
-            <button id="shareSharpBtn">keep it sharp</button>
-            <button id="shareSmoothBtn">keep it smooth</button>
-          </div>
         </div>
       </section>
     </div>

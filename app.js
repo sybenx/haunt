@@ -107,10 +107,6 @@ const micHintEl = document.getElementById("micHint");
 const leaveBtn = document.getElementById("leaveBtn");
 const shareScreenBtn = document.getElementById("shareScreenBtn");
 const shareCamBtn = document.getElementById("shareCamBtn");
-const sharePickEl = document.getElementById("sharePick");
-const shareAutoBtn = document.getElementById("shareAutoBtn");
-const shareSharpBtn = document.getElementById("shareSharpBtn");
-const shareSmoothBtn = document.getElementById("shareSmoothBtn");
 const vStageEl = document.getElementById("vStage");
 const vPickEl = document.getElementById("vPick");
 const liveVideoEl = document.getElementById("liveVideo");
@@ -2336,7 +2332,6 @@ async function startSharing(kind) {
   // one — sharp is legible whatever it turns out to be — and moves
   // when the picture says it should.
   call.sharePreset = kind === "camera" ? "camera" : "sharp";
-  call.sharePinned = null;
   applySharePreset();
   for (const entry of call.peers.values()) sendShareTo(entry);
   publishPresence();
@@ -2430,7 +2425,6 @@ function stopWatchingMotion() {
 }
 
 function considerPreset(motion) {
-  if (call.sharePinned) return; // somebody disagreed, and they win
   const wantSmooth = call.sharePreset !== "smooth";
   const crossed = wantSmooth ? motion > MOTION_TO_SMOOTH : motion < MOTION_TO_SHARP;
   if (!crossed) {
@@ -2455,7 +2449,6 @@ function stopSharing(opts) {
   call.shareStream = null;
   call.shareKind = null;
   call.sharePreset = null;
-  call.sharePinned = null;
   stopWatchingMotion();
   fpsPenalty = 0;
   appliedFps = 0;
@@ -2750,20 +2743,6 @@ shareCamBtn.addEventListener("click", () => {
   else startSharing("camera");
 });
 
-// For somebody who disagrees with what was chosen for them. It only
-// appears once a screen is going out, so it is never the first thing
-// anybody meets.
-function pinPreset(which) {
-  call.sharePinned = which;
-  if (which) call.sharePreset = which;
-  motionRuns = 0;
-  applySharePreset();
-  renderHearth();
-}
-
-shareAutoBtn.addEventListener("click", () => pinPreset(null));
-shareSharpBtn.addEventListener("click", () => pinPreset("sharp"));
-shareSmoothBtn.addEventListener("click", () => pinPreset("smooth"));
 
 /* ---------- speaking: a volume gate per stream, ours included ---------- */
 const SPEAKING_RMS = 0.025;
@@ -2954,7 +2933,18 @@ function buildRing(container, pubkeys) {
     // colour here that is not the fire and so reads as a different
     // kind of thing from talking.
     const sharing = isMe ? call.shareKind : (call.presence.get(pubkey) || {}).sharing;
-    if (sharing) b.classList.add("sharing");
+    if (sharing) {
+      b.classList.add("sharing");
+      // Beside the ring rather than instead of it: the ring says that
+      // something is happening and this says what, and unlike the
+      // ring's turning it survives being looked at in a still.
+      const badge = document.createElement("span");
+      badge.className = "badge sharingB";
+      badge.innerHTML = sharing === "screen"
+        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="13" rx="2"/><line x1="9" y1="20.5" x2="15" y2="20.5"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6.5" width="12" height="11" rx="2.5"/><path d="M14.5 10.5l6-3.5v10l-6-3.5z"/></svg>';
+      b.appendChild(badge);
+    }
     // And it is the way in to watching them. Somebody else's picture
     // opens when you tap them, which is where a person looks first
     // and where there was nothing at all before.
@@ -3031,14 +3021,6 @@ function renderHearth() {
   shareCamBtn.setAttribute("aria-label",
     call.shareKind === "camera" ? "turn your camera off" : "turn your camera on");
 
-  // The override, and only while a screen is what is going out.
-  const pinnable = call.shareKind === "screen";
-  xShow(sharePickEl, pinnable);
-  if (pinnable) {
-    shareAutoBtn.classList.toggle("on", !call.sharePinned);
-    shareSharpBtn.classList.toggle("on", call.sharePinned === "sharp");
-    shareSmoothBtn.classList.toggle("on", call.sharePinned === "smooth");
-  }
 
   updateFloaters();
   renderVideo();

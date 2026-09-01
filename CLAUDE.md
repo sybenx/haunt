@@ -140,8 +140,8 @@ legible and does not care how few frames arrive, the other wants the motion and 
 rather lose detail than stutter. Hearth works out which it is looking at, by watching how
 much the picture is actually changing, and moves between the two as the screen changes.
 Asking the person instead meant asking them to predict what they were about to show, in
-words that did not say what they meant. Somebody who disagrees can pin it, once a screen
-is already going out, which is the only place that choice belongs.
+words that did not say what they meant, and offering them the choice afterwards was the
+same mistake standing a little further back.
 
 How fast the picture goes is worked out too, between eight frames a second and sixty. How
 many people are watching sets the ceiling, because in a mesh each of them is another copy
