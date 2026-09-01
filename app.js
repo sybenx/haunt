@@ -100,6 +100,8 @@ const inviteListEl = document.getElementById("inviteList");
 const hearthEl = document.getElementById("hearth");
 const hearthLabelEl = document.getElementById("hearthLabel");
 const hRingEl = document.getElementById("hRing");
+const hBelowEl = document.getElementById("hBelow");
+const hearthPaneEl = document.querySelector(".hearthPane");
 const hCaptionEl = document.getElementById("hCaption");
 const micBtn = document.getElementById("micBtn");
 const micLabelEl = document.getElementById("micLabel");
@@ -2737,6 +2739,12 @@ function renderVideo() {
   const inWindow = !!who && !away;
 
   hearthEl.classList.toggle("watching", inWindow);
+  // With a picture in the pane the faces stand underneath it rather
+  // than inside it, so the picture is the whole of the pane. Moved
+  // rather than duplicated, which keeps each seat the same element it
+  // was and so keeps the tap that opens somebody's stream working.
+  const seatsGo = inWindow ? hBelowEl : hearthPaneEl;
+  if (hRingEl.parentNode !== seatsGo) seatsGo.append(hRingEl, hCaptionEl);
   xShow(vStageEl, inWindow);
   pipEl.hidden = !inCorner;
 

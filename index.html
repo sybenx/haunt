@@ -372,7 +372,22 @@ input{font:inherit;color:inherit;background:none;border:none}
    furniture gets out of the way. */
 .hearth.watching .hearthGlow,
 .hearth.watching .hearthLabel{display:none}
-.hearth.watching .hRing{margin-top:10px}
+/* Where the faces stand while the pane is showing somebody's picture.
+   Empty and of no height the rest of the time. The pane above it
+   takes the whole of what is left over, so the room the faces need
+   comes out of the picture rather than out of the microphone: the
+   controls below keep their size and their place, and only the
+   picture gets shorter. */
+.hBelow{
+  display:flex;flex-direction:column;align-items:center;
+  align-self:stretch;flex:0 0 auto;
+}
+/* The names hang below the faces on absolute positions and add no
+   height of their own, so the gap under the ring has to be at least
+   as deep as they hang or the line about who is talking lands on top
+   of them. This is the same clearance the pane gives them. */
+.hBelow .hRing{margin:10px 0 6px}
+.hBelow .hCaption{margin:14px 0 2px}
 .vPick{display:flex;justify-content:center;flex-wrap:wrap;gap:6px;margin-top:8px}
 .vPick button{
   font-size:11px;padding:5px 10px;border-radius:999px;
@@ -862,6 +877,7 @@ input{font:inherit;color:inherit;background:none;border:none}
           <div class="hRing" id="hRing"></div>
           <div class="hCaption" id="hCaption">&nbsp;</div>
         </div>
+        <div class="hBelow" id="hBelow"></div>
         <div class="micRow">
           <div class="callBtns">
             <div class="callSlot">
