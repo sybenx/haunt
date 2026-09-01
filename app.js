@@ -2156,6 +2156,46 @@ function attachLocalTracks(entry) {
   }
 }
 
+/* A connection that carries audio and no picture, built again from
+   nothing.
+
+   Only one of the two sides may offer, and it is not always the side
+   whose owner tapped, so the other one is asked to do it. Without
+   that, tapping on the wrong device tore the connection down and then
+   waited for the far end to notice, which costs the audio as well and
+   fixes nothing.
+
+   This is the repair for a pair of devices that negotiated before one
+   of them was reloaded onto a build that knows about video: the old
+   arrangement is thrown away and made again by whichever side is
+   entitled to. */
+function redial(pubkey) {
+  if (identity.pubkey > pubkey) {
+    teardownPeer(pubkey);
+    createPeer(pubkey, true);
+  } else {
+    sendSignal(pubkey, { type: "redial" });
+  }
+}
+
+// What was known about a connection at the moment somebody said they
+// could not see anything. Written where it can be read back rather
+// than described from memory.
+function reportMissingPicture(pubkey) {
+  const entry = call.peers.get(pubkey);
+  const held = call.streams.get(pubkey);
+  const seat = call.presence.get(pubkey) || {};
+  console.info("hearth: no picture from", pubkey.slice(0, 8), JSON.stringify({
+    connection: entry ? entry.pc.connectionState : "none",
+    ice: entry ? entry.pc.iceConnectionState : "none",
+    directions: entry ? entry.pc.getTransceivers().map((t) =>
+      (t.receiver.track ? t.receiver.track.kind : "?") + ":" + t.currentDirection) : [],
+    theySaySharing: seat.sharing || null,
+    trackHere: !!held,
+    trackMuted: held ? held.track.muted : null,
+  }));
+}
+
 async function flushQueuedCandidates(entry) {
   for (const candidate of entry.candidateQueue.splice(0)) {
     try {
@@ -2177,7 +2217,14 @@ async function handleSignal(event) {
 
   if (payload.type === "offer") {
     if (!call.joined) return; // not at the hearth — nothing to answer with
-    const entry = call.peers.get(event.pubkey) || createPeer(event.pubkey, false);
+    // Hearth never renegotiates: every connection is laid out once at
+    // the start and changed after that with replaceTrack alone. So an
+    // offer for somebody already connected is that somebody starting
+    // again — a reload, or the far side answering a request to build
+    // it afresh — and answering it on the old connection leaves them
+    // talking to a socket this side has already given up on.
+    if (call.peers.has(event.pubkey)) teardownPeer(event.pubkey);
+    const entry = createPeer(event.pubkey, false);
     await entry.pc.setRemoteDescription({ type: "offer", sdp: payload.sdp });
     entry.remoteSet = true;
     await flushQueuedCandidates(entry);
@@ -2187,6 +2234,17 @@ async function handleSignal(event) {
     const answer = await entry.pc.createAnswer();
     await entry.pc.setLocalDescription(answer);
     sendSignal(event.pubkey, { type: "answer", sdp: answer.sdp });
+    return;
+  }
+
+  // Asked to build the connection again, by the side that may not
+  // offer. Answered before the guard below, because the whole point
+  // of the ask is that this side's own entry may be the broken one.
+  if (payload.type === "redial") {
+    if (identity.pubkey > event.pubkey && call.joined) {
+      teardownPeer(event.pubkey);
+      createPeer(event.pubkey, true);
+    }
     return;
   }
 
@@ -3006,12 +3064,10 @@ function watchSeat(pubkey) {
   const seat = call.presence.get(pubkey) || {};
   if (!seat.sharing) return;
   if (!streamLive(pubkey)) {
-    showBanner(displayName(pubkey) + "'s picture hasn't reached this device yet. " +
-      "Hearth is still trying.");
-    // Their picture is not arriving over a connection that is
-    // otherwise fine, which a fresh one usually settles.
-    teardownPeer(pubkey);
-    maybeConnectToPeer(pubkey);
+    showBanner(displayName(pubkey) + "'s picture hasn't arrived. Hearth is building that " +
+      "connection again, which usually settles it.");
+    reportMissingPicture(pubkey);
+    redial(pubkey);
     return;
   }
   call.watching = pubkey;
@@ -3069,6 +3125,11 @@ function renderHearth() {
   // A screen is only offered where the browser has a way to give one,
   // which rules out every iPhone.
   const canShareScreen = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+  // The whole control, name and all. Hiding only the button left the
+  // word "screen" sitting under nothing on every phone, which is
+  // where there is no way to share one.
+  const screenSlot = shareScreenBtn.closest(".callSlot");
+  if (screenSlot) screenSlot.hidden = !canShareScreen;
   shareScreenBtn.hidden = !canShareScreen;
   shareScreenBtn.classList.toggle("on", call.shareKind === "screen");
   shareCamBtn.classList.toggle("on", call.shareKind === "camera");
@@ -3342,6 +3403,14 @@ let justDragged = false;
 
 hearthEl.addEventListener("pointerdown", (e) => {
   if (ui.mode !== MODE_VOICE || e.button > 0) return;
+  // Never from a control. A finger on a small button rolls a few
+  // pixels on the way up, which was enough to start a drag, and once
+  // a drag captures the pointer the click is delivered to whatever
+  // holds the capture instead of to the button underneath. Tapping
+  // somebody at the fire did nothing on a phone for that reason and
+  // worked on a desktop, where a mouse does not move while it is
+  // being pressed.
+  if (e.target.closest("button")) return;
   drag = { id: e.pointerId, y0: e.clientY, t0: performance.now(), moved: false };
 });
 
