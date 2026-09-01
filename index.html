@@ -314,6 +314,16 @@ input{font:inherit;color:inherit;background:none;border:none}
 .hearth.expanded .hAv{width:64px;height:64px}
 .hearth.expanded .hAv .av{font-size:22px}
 .hAv.speaking .av{box-shadow:0 0 0 2px var(--ember),0 0 18px rgba(255,150,70,.45)}
+/* Whoever is showing something wears a red ring, which is the one
+   colour in here that is not the fire and so cannot be mistaken for
+   talking. Drawn outside the avatar so it sits alongside the speaking
+   ring rather than fighting it for the same pixels. */
+.hAv.sharing::before{
+  content:'';position:absolute;inset:-4px;border-radius:50%;
+  border:2px solid var(--live);box-shadow:0 0 12px rgba(255,109,90,.5);pointer-events:none;
+}
+/* Somebody with a picture to show is worth tapping. */
+.hAv.sharing{cursor:pointer}
 .hAv.speaking::after{
   content:'';position:absolute;inset:-6px;border-radius:50%;
   border:2px solid rgba(255,158,90,.7);animation:pulse 1.6s ease-out infinite;pointer-events:none;
@@ -351,18 +361,43 @@ input{font:inherit;color:inherit;background:none;border:none}
   background:var(--raise);border:1px solid var(--line);color:var(--dim);
 }
 .vPick button.on{border-color:rgba(255,158,90,.5);color:var(--ember)}
+/* The things you do to a call live together. The microphone is the
+   big one and these two sit beside it, the same shape and a size
+   below, because starting a screen is the same kind of act as opening
+   a microphone and was previously a line of small text underneath
+   everything. */
+.micRow{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:4px}
+.callBtns{display:flex;flex-direction:column;gap:10px}
+.hearth:not(.youIn):not(.youMuted) .callBtns{display:none}
+.callBtn{
+  width:52px;height:52px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 35% 28%,#423324,#211710 72%);
+  border:1px solid #3c2d1e;color:#8d7a63;
+  box-shadow:inset 0 2px 6px rgba(255,205,150,.06),0 8px 18px rgba(0,0,0,.45);
+  transition:width .3s ease,height .3s ease,transform .12s ease;
+}
+.hearth.expanded .callBtn{width:68px;height:68px}
+.callBtn svg{width:24px;height:24px}
+.hearth.expanded .callBtn svg{width:30px;height:30px}
+.callBtn:active{transform:scale(.94)}
+.callBtn.on{
+  background:radial-gradient(circle at 35% 26%,#ff8f7a,#d64a34 60%,#8f2a1a);
+  border-color:rgba(255,140,120,.55);color:#2f0d08;
+  box-shadow:0 0 0 1px rgba(255,120,100,.35),0 0 26px rgba(255,90,70,.35);
+}
+
 .hActions{display:flex;justify-content:center;flex-wrap:wrap;gap:6px}
 /* The one thing worth asking before a screen goes out, asked once and
    in two words. A screen of code and a screen of a game want opposite
    things from the encoder and nothing can work out which this is. */
 .sharePick{margin-top:8px;display:flex;flex-direction:column;align-items:center;gap:6px}
-.shareHint{font-size:11px;color:var(--faint)}
-.shareChoices{display:flex;gap:6px}
+.shareChoices{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
 .shareChoices button{
   font-size:12px;padding:7px 14px;border-radius:999px;
   background:var(--raise2);border:1px solid var(--line2);color:var(--ink);
 }
-.shareChoices button.quietPick{background:none;border-color:transparent;color:var(--faint)}
+.shareChoices button.on{border-color:rgba(255,158,90,.55);color:var(--ember)}
 .hearth:not(.youIn):not(.youMuted) .hActions{display:none}
 .hAv .badge.sharingB{background:var(--raise2);color:var(--ember)}
 
@@ -748,23 +783,30 @@ input{font:inherit;color:inherit;background:none;border:none}
           <div class="hRing" id="hRing"></div>
           <div class="hCaption" id="hCaption">&nbsp;</div>
         </div>
+        <div class="micRow">
+          <div class="callBtns">
+            <button class="callBtn" id="shareScreenBtn" aria-label="share your screen">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><line x1="8" y1="20.5" x2="16" y2="20.5"/><line x1="12" y1="17" x2="12" y2="20.5"/></svg>
+            </button>
+            <button class="callBtn" id="shareCamBtn" aria-label="turn your camera on">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="13" height="12" rx="2.5"/><path d="M15.5 10.5l5-3v9l-5-3z"/></svg>
+            </button>
+          </div>
         <button class="mic" id="micBtn" aria-label="microphone">
           <svg class="micGlyph" viewBox="0 0 34 34" fill="currentColor"><rect x="12.5" y="4" width="9" height="16" rx="4.5"/><path d="M8 15v1.5a9 9 0 0 0 18 0V15h-2.4v1.5a6.6 6.6 0 0 1-13.2 0V15z"/><rect x="15.8" y="26" width="2.4" height="4" rx="1"/><rect x="11" y="29.4" width="12" height="2.2" rx="1.1"/></svg>
           <span class="micLabel" id="micLabel">join</span>
           <span class="micSlash"><svg width="46" height="46" viewBox="0 0 46 46"><line x1="10" y1="36" x2="36" y2="10" stroke="#c9a074" stroke-width="3" stroke-linecap="round"/></svg></span>
         </button>
+        </div>
         <div class="micHint" id="micHint"></div>
         <div class="hActions">
-          <button class="leaveBtn" id="shareScreenBtn" hidden>share your screen</button>
-          <button class="leaveBtn" id="shareCamBtn" hidden>turn your camera on</button>
           <button class="leaveBtn" id="leaveBtn">leave</button>
         </div>
         <div class="sharePick" id="sharePick" hidden>
-          <div class="shareHint">sharp for words, smooth for anything moving</div>
           <div class="shareChoices">
-            <button id="shareSharpBtn">sharp</button>
-            <button id="shareSmoothBtn">smooth</button>
-            <button id="shareNeverBtn" class="quietPick">never mind</button>
+            <button id="shareAutoBtn">follow the picture</button>
+            <button id="shareSharpBtn">keep it sharp</button>
+            <button id="shareSmoothBtn">keep it smooth</button>
           </div>
         </div>
       </section>

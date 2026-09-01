@@ -108,9 +108,9 @@ const leaveBtn = document.getElementById("leaveBtn");
 const shareScreenBtn = document.getElementById("shareScreenBtn");
 const shareCamBtn = document.getElementById("shareCamBtn");
 const sharePickEl = document.getElementById("sharePick");
+const shareAutoBtn = document.getElementById("shareAutoBtn");
 const shareSharpBtn = document.getElementById("shareSharpBtn");
 const shareSmoothBtn = document.getElementById("shareSmoothBtn");
-const shareNeverBtn = document.getElementById("shareNeverBtn");
 const vStageEl = document.getElementById("vStage");
 const vPickEl = document.getElementById("vPick");
 const liveVideoEl = document.getElementById("liveVideo");
@@ -1884,29 +1884,59 @@ const call = {
 const SHARE_PRESETS = {
   sharp: {
     kind: "screen",
-    constraints: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 8, max: 15 } },
     hint: "detail",
     degradation: "maintain-resolution",
     maxBitrate: 800000,
     reference: 1080,
+    fps: 8, // still content needs no more, and every frame saved is bitrate
   },
   smooth: {
     kind: "screen",
-    constraints: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
     hint: "motion",
     degradation: "balanced",
     maxBitrate: 1000000,
     reference: 1080,
+    fps: null, // decided from headroom, see FPS_RANGE below
   },
   camera: {
     kind: "camera",
-    constraints: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24 } },
     hint: "motion",
     degradation: "balanced",
     maxBitrate: 300000,
     reference: 360,
+    fps: null,
   },
 };
+
+const SCREEN_CONSTRAINTS = { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60 } };
+const CAMERA_CONSTRAINTS = { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 30 } };
+
+/* ---------- how fast the picture goes, worked out rather than asked ----------
+
+   Between eight frames a second and sixty. Where a stream sits in
+   that is decided by two things the software can see and the person
+   cannot.
+
+   The first is how many people are watching, because in a mesh every
+   one of them is another copy going up the same connection. One or
+   two watchers can have sixty; up to five, thirty; more than that,
+   twenty. Those are ceilings rather than targets.
+
+   The second is whether it is working. The encoder says when it is
+   being held back by bandwidth or by the machine, and each time it
+   says so the rate steps down a rung. After a couple of minutes with
+   no complaint it steps back up one, so a connection that recovers is
+   not punished for the rest of the call.
+
+   Still content ignores all of it and sits at eight, because a
+   document does not become more readable at sixty. */
+const FPS_RUNGS = [8, 15, 20, 30, 45, 60];
+
+function fpsCeiling(watchers) {
+  if (watchers <= 2) return 60;
+  if (watchers <= 5) return 30;
+  return 20;
+}
 
 /* ---------- how big a picture each watcher is actually sent ----------
 
@@ -2038,26 +2068,27 @@ function createPeer(pubkey, isInitiator) {
   const entry = { pc, sender: null, audioEl: null, candidateQueue: [], remoteSet: false };
   call.peers.set(pubkey, entry);
 
-  // Every connection gets an audio sender from birth, track or no
-  // track: a peer who joins while we are muted must still have
-  // somewhere for a future track to go, and negotiating the m-line as
-  // sendrecv up front is what lets replaceTrack turn our audio on and
-  // off later without renegotiating the call.
-  const transceiver = pc.addTransceiver("audio", { direction: "sendrecv" });
-  entry.sender = transceiver.sender;
-  const track = call.localStream ? call.localStream.getAudioTracks()[0] : null;
-  if (track) {
-    entry.sender.replaceTrack(track).catch((err) => console.error("hearth: replaceTrack", err));
+  // The offering side lays out the m-lines: one audio, one video,
+  // both able to go each way, so that turning a microphone or a
+  // screen on later is replaceTrack on a sender that already exists
+  // and never a renegotiation.
+  //
+  // The answering side must not do this. An answer cannot invent
+  // m-lines that the offer did not contain, so transceivers added
+  // here before the offer arrives are never matched to it: they sit
+  // unassociated with the tracks attached to them while the
+  // connection carries a separate pair that setRemoteDescription made
+  // to mirror the offer, and those are answered recvonly because
+  // nothing was ever put in them. That is one-way audio, and it is
+  // what this build had. The answerer adopts the real ones instead,
+  // in adoptTransceivers below.
+  if (isInitiator) {
+    const audio = pc.addTransceiver("audio", { direction: "sendrecv" });
+    const video = pc.addTransceiver("video", { direction: "sendrecv" });
+    entry.sender = audio.sender;
+    entry.videoSender = video.sender;
+    attachLocalTracks(entry);
   }
-
-  // A video sender from birth, for the same reason the audio one
-  // exists before there is anything to put in it: the m-line is
-  // negotiated once, at the start, and starting or stopping a share
-  // afterwards is replaceTrack on a sender that is already there. No
-  // renegotiation, so a call never drops because somebody shared.
-  const videoTransceiver = pc.addTransceiver("video", { direction: "sendrecv" });
-  entry.videoSender = videoTransceiver.sender;
-  if (call.shareStream) sendShareTo(entry);
 
   pc.addEventListener("track", (e) => {
     // Transceiver-based senders carry no stream association on the
@@ -2094,6 +2125,41 @@ function createPeer(pubkey, isInitiator) {
   return entry;
 }
 
+// The transceivers the offer actually created, claimed by the
+// answering side. Turning each to sendrecv before the answer is
+// composed is what makes the answer say sendrecv, which is what lets
+// anything travel back the other way at all.
+function adoptTransceivers(entry) {
+  for (const t of entry.pc.getTransceivers()) {
+    const kind = t.receiver && t.receiver.track ? t.receiver.track.kind : null;
+    if (kind === "audio" && !entry.sender) {
+      t.direction = "sendrecv";
+      entry.sender = t.sender;
+    } else if (kind === "video" && !entry.videoSender) {
+      t.direction = "sendrecv";
+      entry.videoSender = t.sender;
+    }
+  }
+  attachLocalTracks(entry);
+}
+
+// Whatever this device is already sending, put on the senders of a
+// connection that has just acquired them. A peer arriving in the
+// middle of a call needs the microphone that is already open and the
+// screen that is already being shared.
+function attachLocalTracks(entry) {
+  const track = call.localStream ? call.localStream.getAudioTracks()[0] : null;
+  if (track && entry.sender) {
+    entry.sender.replaceTrack(track).catch((err) => console.error("hearth: replaceTrack", err));
+  }
+  if (call.shareStream && entry.videoSender) {
+    sendShareTo(entry);
+    // One more person watching is one more copy going up the same
+    // connection, which is half of what decides the frame rate.
+    applySharePreset();
+  }
+}
+
 async function flushQueuedCandidates(entry) {
   for (const candidate of entry.candidateQueue.splice(0)) {
     try {
@@ -2119,6 +2185,9 @@ async function handleSignal(event) {
     await entry.pc.setRemoteDescription({ type: "offer", sdp: payload.sdp });
     entry.remoteSet = true;
     await flushQueuedCandidates(entry);
+    // Before the answer is composed, because the answer is where
+    // saying "and I will send too" has to happen.
+    adoptTransceivers(entry);
     const answer = await entry.pc.createAnswer();
     await entry.pc.setLocalDescription(answer);
     sendSignal(event.pubkey, { type: "answer", sdp: answer.sdp });
@@ -2237,15 +2306,13 @@ async function applyEncoding(entry) {
   await entry.videoSender.setParameters(params);
 }
 
-async function startSharing(presetName) {
+async function startSharing(kind) {
   if (!call.joined) return;
-  const preset = SHARE_PRESETS[presetName];
-  if (!preset) return;
   let stream;
   try {
-    stream = preset.kind === "screen"
-      ? await navigator.mediaDevices.getDisplayMedia({ video: preset.constraints, audio: false })
-      : await navigator.mediaDevices.getUserMedia({ video: preset.constraints, audio: false });
+    stream = kind === "screen"
+      ? await navigator.mediaDevices.getDisplayMedia({ video: SCREEN_CONSTRAINTS, audio: false })
+      : await navigator.mediaDevices.getUserMedia({ video: CAMERA_CONSTRAINTS, audio: false });
   } catch (err) {
     // A refusal at the browser's own prompt is somebody changing
     // their mind, and is not worth a banner.
@@ -2260,18 +2327,122 @@ async function startSharing(presetName) {
   }
   stopSharing({ quiet: true }); // one picture at a time, one video sender
   const track = stream.getVideoTracks()[0];
-  // What the encoder should protect when it cannot have everything.
-  track.contentHint = preset.hint;
   // The browser's own stop-sharing control, which is the one most
   // people will reach for on a screen share.
   track.addEventListener("ended", () => stopSharing());
   call.shareStream = stream;
-  call.shareKind = preset.kind;
-  call.sharePreset = presetName;
+  call.shareKind = kind;
+  // A camera is always the moving trade. A screen starts on the safe
+  // one — sharp is legible whatever it turns out to be — and moves
+  // when the picture says it should.
+  call.sharePreset = kind === "camera" ? "camera" : "sharp";
+  call.sharePinned = null;
+  applySharePreset();
   for (const entry of call.peers.values()) sendShareTo(entry);
   publishPresence();
   watchShareQuality();
+  if (kind === "screen") watchPictureMotion(stream);
   renderVideo();
+  renderHearth();
+}
+
+/* ---------- which trade a screen is on, decided by the screen ----------
+
+   Asking somebody to choose between sharp and smooth was asking them
+   to predict what they were about to show, in words that do not say
+   what they mean: nobody reads "sharp" and hears eight frames a
+   second. So it is measured instead.
+
+   The measurement is the picture itself rather than anything the
+   encoder reports, because the encoder's own numbers are downstream
+   of the choice being made and would chase themselves. A copy of the
+   shared stream is drawn very small, twice a second, and consecutive
+   frames are compared: a document sits near zero, a scrolling
+   terminal lifts it, a game holds it high.
+
+   The two thresholds are far apart and each has to hold for several
+   samples running before anything moves, which is what stops a
+   scrolling pane in the corner of a still document from flipping the
+   whole stream back and forth. Going up is quicker than coming down,
+   because being briefly smooth for a still screen costs a little
+   bitrate while being briefly sharp for a game is unwatchable. */
+const MOTION_SAMPLE_MS = 500;
+const MOTION_TO_SMOOTH = 0.035;  // above this, the picture is moving
+const MOTION_TO_SHARP = 0.012;   // below this, it has settled
+const SAMPLES_TO_SMOOTH = 4;     // two seconds of motion
+const SAMPLES_TO_SHARP = 16;     // eight seconds of stillness
+// Each sample is smoothed into the ones before it rather than judged
+// alone. A capture handing back the same frame twice reads as perfect
+// stillness for that instant, and on a run of consecutive samples one
+// of those resets the count and nothing ever decides anything: the
+// first version of this sat on the still setting through a screen
+// full of motion for exactly that reason.
+const MOTION_SMOOTHING = 0.3;
+
+let motionTimer = null;
+let motionVideo = null;
+let motionRuns = 0;
+let motionAverage = null;
+
+function watchPictureMotion(stream) {
+  stopWatchingMotion();
+  // An offscreen copy of what is going out, small enough that
+  // comparing every pixel of it costs nothing worth measuring.
+  motionVideo = document.createElement("video");
+  motionVideo.muted = true;
+  motionVideo.playsInline = true;
+  motionVideo.srcObject = stream;
+  motionVideo.play().catch(() => {});
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 36;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  let previous = null;
+
+  motionTimer = setInterval(() => {
+    if (!call.shareStream || !motionVideo || !motionVideo.videoWidth) return;
+    ctx.drawImage(motionVideo, 0, 0, canvas.width, canvas.height);
+    const frame = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    if (previous) {
+      let sum = 0;
+      // Green alone, because it carries most of the luminance and a
+      // third of the work is a third of the work.
+      for (let i = 1; i < frame.length; i += 4) sum += Math.abs(frame[i] - previous[i]);
+      const motion = sum / ((frame.length / 4) * 255);
+      motionAverage = motionAverage === null
+        ? motion
+        : motionAverage * (1 - MOTION_SMOOTHING) + motion * MOTION_SMOOTHING;
+      considerPreset(motionAverage);
+    }
+    previous = frame;
+  }, MOTION_SAMPLE_MS);
+}
+
+function stopWatchingMotion() {
+  clearInterval(motionTimer);
+  motionTimer = null;
+  if (motionVideo) {
+    motionVideo.srcObject = null;
+    motionVideo = null;
+  }
+  motionRuns = 0;
+  motionAverage = null;
+}
+
+function considerPreset(motion) {
+  if (call.sharePinned) return; // somebody disagreed, and they win
+  const wantSmooth = call.sharePreset !== "smooth";
+  const crossed = wantSmooth ? motion > MOTION_TO_SMOOTH : motion < MOTION_TO_SHARP;
+  if (!crossed) {
+    motionRuns = 0;
+    return;
+  }
+  motionRuns++;
+  const needed = wantSmooth ? SAMPLES_TO_SMOOTH : SAMPLES_TO_SHARP;
+  if (motionRuns < needed) return;
+  motionRuns = 0;
+  call.sharePreset = wantSmooth ? "smooth" : "sharp";
+  applySharePreset();
   renderHearth();
 }
 
@@ -2284,12 +2455,52 @@ function stopSharing(opts) {
   call.shareStream = null;
   call.shareKind = null;
   call.sharePreset = null;
+  call.sharePinned = null;
+  stopWatchingMotion();
+  fpsPenalty = 0;
+  appliedFps = 0;
   clearInterval(shareStatsTimer);
   shareStatsTimer = null;
   if (opts && opts.quiet) return; // swapping one share for another
   publishPresence();
   renderVideo();
   renderHearth();
+}
+
+// Everything that follows from which trade a screen is on: what the
+// encoder should protect, what it should give up, how fast the
+// capture runs, and the ceiling on each connection. Applied while the
+// stream runs, so moving between them interrupts nothing.
+function applySharePreset() {
+  if (!call.shareStream) return;
+  const preset = SHARE_PRESETS[call.sharePreset];
+  if (!preset) return;
+  const track = call.shareStream.getVideoTracks()[0];
+  if (!track) return;
+  track.contentHint = preset.hint;
+  const fps = preset.fps === null ? chosenFps() : preset.fps;
+  if (fps !== appliedFps) {
+    appliedFps = fps;
+    // A constraint on the capture rather than on the encoder, so the
+    // frames are never made in the first place.
+    track.applyConstraints({ frameRate: { max: fps } }).catch(() => {});
+  }
+  for (const entry of call.peers.values()) applyEncoding(entry).catch(() => {});
+}
+
+// Where in the range this stream sits: the ceiling for however many
+// people are watching, brought down a rung for each time the encoder
+// has said it is struggling and not yet been forgiven.
+let fpsPenalty = 0;
+let appliedFps = 0;
+let lastPenaltyAt = 0;
+const PENALTY_FORGIVEN_MS = 120000;
+
+function chosenFps() {
+  const ceiling = fpsCeiling(Math.max(1, call.peers.size));
+  let rung = FPS_RUNGS.indexOf(ceiling);
+  if (rung === -1) rung = FPS_RUNGS.length - 1;
+  return FPS_RUNGS[Math.max(0, rung - fpsPenalty)];
 }
 
 /* ---------- saying so when the connection cannot keep up ----------
@@ -2323,7 +2534,23 @@ function watchShareQuality() {
         if (why === "bandwidth" || why === "cpu") limited = why;
       });
     }
-    if (!limited) return;
+    if (!limited) {
+      // Quiet for long enough that a connection which recovered gets a
+      // rung back, rather than staying punished for the whole call.
+      if (fpsPenalty > 0 && Date.now() - lastPenaltyAt > PENALTY_FORGIVEN_MS) {
+        fpsPenalty--;
+        lastPenaltyAt = Date.now();
+        applySharePreset();
+      }
+      return;
+    }
+    // Told to slow down. One rung per complaint and not again for a
+    // while, so it walks down rather than falling down.
+    if (Date.now() - lastPenaltyAt > 15000 && fpsPenalty < FPS_RUNGS.length - 1) {
+      fpsPenalty++;
+      lastPenaltyAt = Date.now();
+      applySharePreset();
+    }
     if (Date.now() - lastQualityWarning < QUALITY_WARN_GAP_MS) return;
     lastQualityWarning = Date.now();
     showBanner(limited === "cpu"
@@ -2509,33 +2736,34 @@ pipXEl.addEventListener("click", (e) => {
 
 pipEl.addEventListener("click", () => scrollToBottom(true));
 
-// Sharing a screen asks one question first, because a screen of code
-// and a screen of a game want opposite things and nothing here can
-// tell which this is. Stopping asks nothing.
+// Nothing is asked on the way in. The browser's own picker is
+// already one prompt, and a second one about frame rates dressed up
+// as adjectives was asking somebody to predict what they were about
+// to show.
 shareScreenBtn.addEventListener("click", () => {
-  if (call.shareKind === "screen") {
-    stopSharing();
-    return;
-  }
-  xShow(sharePickEl, true);
+  if (call.shareKind === "screen") stopSharing();
+  else startSharing("screen");
 });
-
-shareSharpBtn.addEventListener("click", () => {
-  xShow(sharePickEl, false);
-  startSharing("sharp");
-});
-
-shareSmoothBtn.addEventListener("click", () => {
-  xShow(sharePickEl, false);
-  startSharing("smooth");
-});
-
-shareNeverBtn.addEventListener("click", () => xShow(sharePickEl, false));
 
 shareCamBtn.addEventListener("click", () => {
   if (call.shareKind === "camera") stopSharing();
   else startSharing("camera");
 });
+
+// For somebody who disagrees with what was chosen for them. It only
+// appears once a screen is going out, so it is never the first thing
+// anybody meets.
+function pinPreset(which) {
+  call.sharePinned = which;
+  if (which) call.sharePreset = which;
+  motionRuns = 0;
+  applySharePreset();
+  renderHearth();
+}
+
+shareAutoBtn.addEventListener("click", () => pinPreset(null));
+shareSharpBtn.addEventListener("click", () => pinPreset("sharp"));
+shareSmoothBtn.addEventListener("click", () => pinPreset("smooth"));
 
 /* ---------- speaking: a volume gate per stream, ours included ---------- */
 const SPEAKING_RMS = 0.025;
@@ -2722,12 +2950,22 @@ function buildRing(container, pubkeys) {
       badge.innerHTML = '<svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"><rect x="4.4" y="1" width="3.2" height="6" rx="1.6"/><path d="M2.5 5.4v.6a3.5 3.5 0 0 0 7 0v-.6h-1v.6a2.5 2.5 0 0 1-5 0v-.6z"/><line x1="1.5" y1="10.5" x2="10.5" y2="1.5" stroke="#d98a56" stroke-width="1.4" stroke-linecap="round"/></svg>';
       b.appendChild(badge);
     }
+    // A red ring on whoever is showing something, which is the one
+    // colour here that is not the fire and so reads as a different
+    // kind of thing from talking.
     const sharing = isMe ? call.shareKind : (call.presence.get(pubkey) || {}).sharing;
-    if (sharing) {
-      const badge = document.createElement("span");
-      badge.className = "badge sharingB";
-      badge.textContent = sharing === "screen" ? "▣" : "◉";
-      b.appendChild(badge);
+    if (sharing) b.classList.add("sharing");
+    // And it is the way in to watching them. Somebody else's picture
+    // opens when you tap them, which is where a person looks first
+    // and where there was nothing at all before.
+    if (sharing && !isMe) {
+      b.addEventListener("click", () => {
+        call.watching = pubkey;
+        call.pipPutAway = false;
+        if (ui.mode !== MODE_VOICE) scrollToBottom(true);
+        renderVideo();
+        renderPicker();
+      });
     }
     const name = document.createElement("span");
     name.className = "hName";
@@ -2782,16 +3020,25 @@ function renderHearth() {
     micHintEl.textContent = "tap to mute";
   }
 
-  // Sharing is only offered to somebody already at the fire, and a
-  // screen is only offered where the browser has a way to give one.
+  // A screen is only offered where the browser has a way to give one,
+  // which rules out every iPhone.
   const canShareScreen = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
-  shareScreenBtn.hidden = !(call.joined && canShareScreen);
-  shareCamBtn.hidden = !call.joined;
-  shareScreenBtn.textContent = call.shareKind === "screen" ? "stop sharing your screen" : "share your screen";
-  shareCamBtn.textContent = call.shareKind === "camera" ? "turn your camera off" : "turn your camera on";
-  // Only ever open while there is nothing being shared and somebody
-  // is at the fire to answer it.
-  if (call.shareKind || !call.joined) xShow(sharePickEl, false);
+  shareScreenBtn.hidden = !canShareScreen;
+  shareScreenBtn.classList.toggle("on", call.shareKind === "screen");
+  shareCamBtn.classList.toggle("on", call.shareKind === "camera");
+  shareScreenBtn.setAttribute("aria-label",
+    call.shareKind === "screen" ? "stop sharing your screen" : "share your screen");
+  shareCamBtn.setAttribute("aria-label",
+    call.shareKind === "camera" ? "turn your camera off" : "turn your camera on");
+
+  // The override, and only while a screen is what is going out.
+  const pinnable = call.shareKind === "screen";
+  xShow(sharePickEl, pinnable);
+  if (pinnable) {
+    shareAutoBtn.classList.toggle("on", !call.sharePinned);
+    shareSharpBtn.classList.toggle("on", call.sharePinned === "sharp");
+    shareSmoothBtn.classList.toggle("on", call.sharePinned === "smooth");
+  }
 
   updateFloaters();
   renderVideo();

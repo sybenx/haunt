@@ -135,10 +135,18 @@ scroll away from the fire. Putting that corner away puts the picture away and no
 else: they are still in the call, still hearing everyone, and the fire still has the
 picture when they come back to it.
 
-A screen is shared as one of two things, chosen when the sharing starts, because a screen
-of code and a screen of a game want opposite things. Sharp keeps every letter legible and
-gives up frames to do it; smooth keeps the motion and gives up detail. Nothing can work
-out which is wanted, so the person is asked, in two words.
+A screen of code and a screen of a game want opposite things: one wants every letter
+legible and does not care how few frames arrive, the other wants the motion and would
+rather lose detail than stutter. Hearth works out which it is looking at, by watching how
+much the picture is actually changing, and moves between the two as the screen changes.
+Asking the person instead meant asking them to predict what they were about to show, in
+words that did not say what they meant. Somebody who disagrees can pin it, once a screen
+is already going out, which is the only place that choice belongs.
+
+How fast the picture goes is worked out too, between eight frames a second and sixty. How
+many people are watching sets the ceiling, because in a mesh each of them is another copy
+going up the same connection, and the encoder saying it is struggling brings it down a
+rung until it stops saying so.
 
 How large a picture each person is sent is that person's own to decide. A mesh gives the
 sharer a separate connection to every watcher, so there is no single resolution for them
