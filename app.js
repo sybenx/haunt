@@ -112,6 +112,8 @@ const shareCamBtn = document.getElementById("shareCamBtn");
 const vStageEl = document.getElementById("vStage");
 const vPickEl = document.getElementById("vPick");
 const liveVideoEl = document.getElementById("liveVideo");
+const vMainEl = document.getElementById("vMain");
+const vShrinkBtn = document.getElementById("vShrink");
 const pipEl = document.getElementById("pip");
 const pipStageEl = document.getElementById("pipStage");
 const pipWhoEl = document.getElementById("pipWho");
@@ -1849,6 +1851,10 @@ const call = {
   streams: new Map(),       // pubkey -> { stream, live }
   watching: null,           // whose stream fills the window; null picks for itself
   pipPutAway: false,        // the corner was dismissed, which is not leaving the call
+  // Beside a conversation a picture takes the conversation's half,
+  // because that is the half worth giving it and the fire keeps its
+  // own. This is somebody asking for the conversation back.
+  streamShrunk: false,
 };
 
 /* ---------- what a shared picture costs, and why these numbers ----------
@@ -2633,15 +2639,31 @@ function viewableHeight() {
   // for an eye to gain, and phones that claim four would be asking
   // for a picture nobody can see.
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
-  const box = vStageEl.getBoundingClientRect();
+  // Whichever box the picture actually goes in. Beside a conversation
+  // that is a half of the window rather than a slice of the fire, and
+  // measuring the fire's slice there would ask everybody for a
+  // smaller picture than there is room to show. Somebody who has put
+  // the picture in the corner to read means it, so the corner is
+  // measured too, and a rung that small is worth asking for. The
+  // corner a narrow screen puts it in is not the same thing: that one
+  // lasts as long as the scroll is away from the fire, and dropping a
+  // rung for it would cost a soft picture on the way back.
+  const box = (wide ? (call.streamShrunk ? pipStageEl : vMainEl) : vStageEl)
+    .getBoundingClientRect();
   let w = box.width;
   let h = box.height;
   if (!w || !h) {
-    // Not at the fire, so the window is not on screen to measure.
-    // This is the size it will have when they come back to it, near
-    // enough for choosing a rung.
-    w = Math.min(mainEl.clientWidth || window.innerWidth || 360, 560);
-    h = Math.max(140, Math.round((window.innerHeight || 640) * 0.34));
+    // The box is not on screen to be measured: either the fire is
+    // scrolled away, or nobody is sharing yet and the half has not
+    // been made. Estimate the size it will have when it appears,
+    // which is near enough for choosing a rung.
+    if (wide) {
+      w = Math.max(240, mainEl.clientWidth - hearthEl.offsetWidth);
+      h = mainEl.clientHeight;
+    } else {
+      w = Math.min(mainEl.clientWidth || window.innerWidth || 360, 560);
+      h = Math.max(140, Math.round((window.innerHeight || 640) * 0.34));
+    }
   }
   // A picture is fitted inside that box, so whichever of the two runs
   // out first is what can be shown.
@@ -2734,23 +2756,33 @@ function watchedPubkey() {
    the voice view still has it. */
 function renderVideo() {
   const who = watchedPubkey();
-  // Nothing is ever scrolled away from when both are on screen, so
-  // the corner has nothing to be the answer to.
+  // Beside a conversation the picture takes the conversation's half
+  // rather than a slice of the fire's, so the fire is the same in
+  // every state and only the other half changes. On a phone the two
+  // are never on screen together, so a picture takes the pane and the
+  // corner is what a person gets when they scroll away from it.
   const away = !wide && ui.mode !== MODE_VOICE;
-  const inCorner = !!who && away && !call.pipPutAway;
-  const inWindow = !!who && !away;
+  const inHalf = !!who && wide && !call.streamShrunk && !call.pipPutAway;
+  const inCorner = !!who && !call.pipPutAway && (wide ? call.streamShrunk : away);
+  const inWindow = !!who && !wide && !away;
 
   hearthEl.classList.toggle("watching", inWindow);
   // With a picture in the pane the faces stand underneath it rather
   // than inside it, so the picture is the whole of the pane. Moved
   // rather than duplicated, which keeps each seat the same element it
   // was and so keeps the tap that opens somebody's stream working.
+  // Beside a conversation the picture is elsewhere, so they stay
+  // where they were and nothing moves at all.
   const seatsGo = inWindow ? hBelowEl : hearthPaneEl;
   if (hRingEl.parentNode !== seatsGo) seatsGo.append(hRingEl, hCaptionEl);
   xShow(vStageEl, inWindow);
+  vMainEl.hidden = !inHalf;
   pipEl.hidden = !inCorner;
 
   if (!who) {
+    // Nothing to show, so the next thing shown starts full size
+    // rather than in the corner somebody put the last one.
+    call.streamShrunk = false;
     liveVideoEl.hidden = true;
     liveVideoEl.srcObject = null;
     if (liveVideoEl.parentNode) liveVideoEl.parentNode.removeChild(liveVideoEl);
@@ -2760,8 +2792,8 @@ function renderVideo() {
 
   const held = call.streams.get(who);
   if (liveVideoEl.srcObject !== held.stream) liveVideoEl.srcObject = held.stream;
-  liveVideoEl.hidden = !(inWindow || inCorner);
-  const home = inWindow ? vStageEl : inCorner ? pipStageEl : null;
+  liveVideoEl.hidden = !(inWindow || inCorner || inHalf);
+  const home = inHalf ? vMainEl : inWindow ? vStageEl : inCorner ? pipStageEl : null;
   if (home && liveVideoEl.parentNode !== home) home.appendChild(liveVideoEl);
   if (home) liveVideoEl.play().catch(() => {});
   pipWhoEl.textContent = displayName(who);
@@ -2795,7 +2827,25 @@ pipXEl.addEventListener("click", (e) => {
   renderVideo();
 });
 
-pipEl.addEventListener("click", () => scrollToBottom(true));
+// Beside a conversation the corner is a picture set aside, so
+// tapping it is asking for it back. On a phone it is a picture
+// following somebody up the scroll, so tapping it goes back down to
+// the fire the picture belongs to.
+pipEl.addEventListener("click", () => {
+  if (wide) {
+    call.streamShrunk = false;
+    renderVideo();
+    return;
+  }
+  scrollToBottom(true);
+});
+
+// The other direction: the conversation back, the picture to the
+// corner. Nobody leaves the call and nothing stops being sent.
+vShrinkBtn.addEventListener("click", () => {
+  call.streamShrunk = true;
+  renderVideo();
+});
 
 // Nothing is asked on the way in. The browser's own picker is
 // already one prompt, and a second one about frame rates dressed up
@@ -2959,6 +3009,7 @@ function leaveCall() {
   call.streams.clear();
   call.watching = null;
   call.pipPutAway = false;
+  call.streamShrunk = false;
   renderVideo();
   renderHearth();
   // The one moment a held update is allowed to happen.
@@ -3212,21 +3263,25 @@ const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
    everything inside it is what it always was.
 
    Where the line falls is a measurement rather than a kind of
-   machine. The fire needs its microphone at a hundred and ninety
-   across with a control either side at sixty-eight and air between
-   them, which with the hearth's own padding comes to about three
-   hundred and ninety. A conversation wants forty characters or so on
-   a line, which with an avatar and the padding either side of it
-   comes to about three hundred and sixty. That is seven hundred and
-   fifty, so the layout arrives at seven hundred and sixty.
+   machine. A conversation wants forty characters or so on a line,
+   which with an avatar and the padding either side of it comes to
+   about three hundred and sixty; the fire wants its microphone with
+   a control either side and air between them, which comes to about
+   three hundred and twenty once those are sized to the room they are
+   in. That is about seven hundred, which is where this starts.
 
-   Height counts too, and it is what keeps a phone lying on its side
-   out of this. Such a phone has the width and nothing like the
-   height: the fire needs a pane worth watching, a row of faces, and
-   the microphone under them, which is a little over five hundred. So
-   both dimensions are asked, and a landscape phone is answered by the
-   height rather than by being recognised as a phone. */
-const WIDE = matchMedia("(min-width: 760px) and (min-height: 540px)");
+   A phone lying on its side belongs on this side of the line rather
+   than the other one, which is the opposite of what it first looks
+   like. It has width and almost no height, and the arrangement that
+   stacks the fire on top of the conversation is the one that needs
+   height: given four hundred and thirty of it, that arrangement
+   leaves the pane about forty pixels tall and the microphone eating
+   half the screen. Two columns is what a wide short window is for.
+   So the height asked here is only the floor below which even a
+   column cannot hold a fire, and everything inside the fire is sized
+   against the height as well as the width, so that the microphone is
+   what gives way rather than the thing being watched. */
+const WIDE = matchMedia("(min-width: 700px) and (min-height: 380px)");
 let wide = false;
 
 // The hearth's natural height can only be read while no inline height
@@ -3290,7 +3345,8 @@ function layout() {
    a different container and nothing else. Called once at startup and
    again whenever a window crosses the width, so a desktop window
    dragged narrow becomes the phone layout and back again. */
-function applyWidth() {
+function applyWidth(force) {
+  if (!force && wide === WIDE.matches) return;
   wide = WIDE.matches;
   stageEl.classList.toggle("wide", wide);
   if (wide) {
@@ -3314,7 +3370,14 @@ function applyWidth() {
   if (!wide) setMode(MODE_VOICE, false);
 }
 
-WIDE.addEventListener("change", applyWidth);
+WIDE.addEventListener("change", () => applyWidth(true));
+// The same crossing, caught by the event every browser fires for
+// every resize and rotation. If the query's own change ever fails to
+// arrive, what is left is the fire in one arrangement and the
+// stylesheet drawing the other, which is worth one comparison to
+// rule out. Nothing happens here unless the answer has changed.
+window.addEventListener("resize", () => applyWidth());
+window.addEventListener("orientationchange", () => applyWidth());
 
 function setMode(mode, animate = true) {
   if (wide) return; // there is only one arrangement, and it is showing
@@ -5422,7 +5485,7 @@ function start(relayUrl) {
   watchForUpdates();
 
   layout();
-  applyWidth(); // which arrangement there is room for
+  applyWidth(true); // which arrangement there is room for
   setMode(MODE_VOICE, false); // the room's face is the fire
   new ResizeObserver(layout).observe(mainEl);
 

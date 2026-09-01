@@ -825,11 +825,13 @@ input{font:inherit;color:inherit;background:none;border:none}
    message knows this arrangement exists, which is what keeps one
    change from having to be made twice.
 
-   Both dimensions are asked, because width alone would hand this to a
-   phone lying on its side, which has the width and nowhere near the
-   height. See app.js for how the two numbers were arrived at.
+   Both dimensions are asked. A phone lying on its side wants this
+   arrangement rather than the other one, so the height here is only
+   the floor below which a column cannot hold a fire at all; what
+   makes such a phone work is that the sizes below are written against
+   the height as well as the width. See app.js for both numbers.
    ============================================================ */
-@media (min-width: 760px) and (min-height: 540px) {
+@media (min-width: 700px) and (min-height: 380px) {
   /* The phone-first cap is what keeps one column a readable width on
      a desktop. Two columns need it lifted, and then capped again so
      that a very large monitor gives the conversation a line somebody
@@ -840,13 +842,35 @@ input{font:inherit;color:inherit;background:none;border:none}
     /* The conversation takes what is left; the fire takes what it
        needs and no more, so a very wide window gives the extra to the
        words rather than to an enormous microphone. */
-    grid-template-columns:minmax(0,1fr) clamp(360px,32vw,420px);
+    grid-template-columns:minmax(0,1fr) clamp(320px,34vw,420px);
   }
   /* The conversation scrolls on its own again. On a phone this is
      pinned while the voice screen covers it, which is a rule about a
      screen that is covering something. */
   .stage .scroll{overflow-y:auto;height:100%}
   .composer{padding:12px 14px 14px}
+
+  /* The conversation and a stream share the first half: one cell,
+     with the stream laid over the conversation when there is one.
+     Over rather than instead of, so that the conversation keeps its
+     scroll position while it is out of sight and is where it was left
+     when the picture goes away. */
+  .stage.wide .scroll{grid-area:1/1}
+  .vMain{grid-area:1/1;z-index:2;position:relative;background:#05070a}
+  .hearth{grid-area:1/2}
+  /* The picture is the whole of that half. Its own element is the one
+     moved here from the fire, so it is the same decoder either way. */
+  .vMain .liveVideo{position:absolute;inset:0;width:100%;height:100%}
+  .vShrink{
+    position:absolute;top:10px;right:10px;z-index:3;
+    width:34px;height:34px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    background:rgba(4,6,9,.62);border:1px solid var(--line2);color:rgba(240,230,215,.85);
+  }
+  .vShrink svg{width:17px;height:17px}
+  /* The corner belongs over the conversation, which is the half it
+     hands back, and not over the fire. */
+  .pip{left:12px;right:auto}
 
   .hearth{
     height:100%;min-height:0;margin-top:0;
@@ -860,12 +884,44 @@ input{font:inherit;color:inherit;background:none;border:none}
   .stage.wide .hearth.expanded .vpGrab,
   .stage.wide .hearth.expanded .vpTag{display:none}
   .stage.wide .hearth.expanded{padding-top:14px}
-  /* Sized to the column rather than to the window, which is a great
-     deal wider than the column. */
-  .hearth.expanded .mic{width:190px;height:190px}
-  .hearth.expanded .callBtn{width:60px;height:60px}
-  .hearth.expanded .hAv{width:56px;height:56px}
+  /* Sized to the column and to the height, not to the window. The
+     window is a great deal wider than the column, and on a phone
+     lying on its side it is a great deal wider than it is tall: the
+     microphone is the biggest thing in the fire, so it is what has to
+     give first, or there is no room left for anything worth
+     watching. The floor under the two controls is a thumb: a target
+     smaller than this is one somebody misses. */
+  .hearth.expanded .mic{width:min(190px,26vh,22vw);height:min(190px,26vh,22vw)}
+  .hearth.expanded .callBtn{
+    width:max(44px,min(60px,8vh,7vw));height:max(44px,min(60px,8vh,7vw));
+  }
+  .hearth.expanded .callBtn svg{width:45%;height:45%}
+  .hearth.expanded .hAv{width:min(56px,7vh);height:min(56px,7vh)}
   .hearth.expanded .hearthPane{margin:8px 0 0}
+}
+
+/* A window with width and little height is a phone on its side, and
+   the two columns above are what it wants: stacking the fire on top
+   of the conversation is what leaves it with neither. What it cannot
+   spare is any line that is only telling somebody something they can
+   already see. */
+@media (min-width: 700px) and (min-height: 380px) and (max-height: 560px) {
+  .stage.wide .hCaption{display:none}
+  /* The column is plainly the fire, sitting beside a conversation
+     that is plainly the conversation, so the heading over it is a
+     line naming what is already in front of them. */
+  .stage.wide .hearthLabel{display:none}
+  .stage.wide .hearth.expanded{padding-top:8px}
+  .stage.wide .hBelow .hRing{margin-top:6px}
+  /* Every row of pixels counts on a screen this short, and the bar is
+     sixty of them. It keeps all three of the things it carries — the
+     room's name, whether it is connected, and the way into what is
+     yours — at about half the height. */
+  .stage.wide .topbar{padding:calc(4px + env(safe-area-inset-top)) 12px 4px;gap:8px}
+  .stage.wide .accountBtn{width:30px;height:30px;font-size:12px;border-width:1px}
+  .stage.wide .tbName{font-size:13px}
+  .stage.wide .tbStatus{font-size:9.5px}
+  .stage.wide .pillSlot{height:30px}
 }
 
 @keyframes pulse{0%{transform:scale(.85);opacity:.9}70%{transform:scale(1.18);opacity:0}100%{transform:scale(1.18);opacity:0}}
@@ -959,6 +1015,12 @@ input{font:inherit;color:inherit;background:none;border:none}
         </div>
         <div class="micHint" id="micHint"></div>
       </section>
+    </div>
+
+    <div class="vMain" id="vMain" hidden>
+      <button class="vShrink" id="vShrink" aria-label="show the conversation">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12.5" y="12" width="7" height="5" rx="1"/></svg>
+      </button>
     </div>
 
     <button class="pip" id="pip" hidden>

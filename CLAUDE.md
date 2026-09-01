@@ -163,7 +163,11 @@ other, both always there. The three modes below exist because a phone cannot sho
 once, so where there is room they are gone, and so is everything that answered for them.
 Which of the two arrangements a screen gets is decided by measuring what fits, in both
 directions, rather than by asking what kind of machine it is: a phone lying on its side
-has the width and nowhere near the height, and is answered by the height.
+has the width and nowhere near the height, and is answered by the height. A screen being
+shared is the one thing there is never room for twice: it takes the conversation's half
+rather than a slice of the fire's, because a picture in the fire's column is too small to
+be worth turning a phone sideways for. Putting it in the corner hands the conversation
+its half back, and the fire is the same in every one of those states.
 
 A desktop version exists as a separate product, and that is a different thing again: a
 game overlay with independent floating windows for voice and for each conversation,
