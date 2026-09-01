@@ -397,6 +397,14 @@ input{font:inherit;color:inherit;background:none;border:none}
 .micRow{
   display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
   align-items:center;margin-top:4px;
+  /* The full width, so that the outer two columns are the room that
+     is actually there rather than only as much as their contents
+     need. Without this the row shrank to fit and the buttons ended up
+     pressed against the microphone with the space they should have
+     been using sitting empty at the edges, which reads as the
+     microphone having been squeezed even though it is the size it
+     always was. */
+  width:100%;
 }
 /* Each side is pinned to its own column and the microphone is pinned
    to the middle one. Pinned rather than left to fall into place,
@@ -404,7 +412,9 @@ input{font:inherit;color:inherit;background:none;border:none}
    flanking buttons hidden, which they are until somebody is at the
    fire, the microphone would slide into the empty left-hand track. */
 .callBtns{
-  grid-column:1;justify-self:end;margin-right:14px;
+  /* Centred in the space beside the microphone rather than shoved up
+     against it, which is what puts air on both sides of it. */
+  grid-column:1;justify-self:center;
   display:flex;flex-direction:column;gap:10px;
   /* Sat against the bottom of the row rather than centred on it, so
      that the lower of the two lines up with leaving on the far side
@@ -445,7 +455,7 @@ input{font:inherit;color:inherit;background:none;border:none}
    underneath rather than inside because the glyph is small and
    leaving is not a thing to guess at. */
 .leaveSlot{
-  grid-column:3;justify-self:start;margin-left:14px;
+  grid-column:3;justify-self:center;
   align-self:end; /* level with the camera on the other side */
 }
 .hearth:not(.youIn):not(.youMuted) .leaveSlot{display:none}
