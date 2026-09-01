@@ -120,10 +120,22 @@ bothy and points their message relays at it.
 Voice is WebRTC. Media never passes through the bothy relay, which carries only the
 signalling — who is in the call, and one negotiation per participant.
 
-Calls are distributed through a selective forwarding unit rather than a mesh, so a
-participant sends one stream regardless of how many people are listening. This is what
-makes a call of ten people work on a home connection, and it is what makes one person
-streaming their screen to the rest possible at all.
+Calls are a mesh. Everybody sends to everybody, which means a person sharing their screen
+sends one copy of it up their own connection for every person watching, and there is no
+unit anywhere turning one copy into many. That is a real ceiling and it is the one Hearth
+accepts: a handful of people, seven at the outside. Past that the picture degrades and
+Hearth says why, rather than quietly finding a way round it. A group that needs more than
+that every week wants a different kind of software, and building the thing that would
+serve them would mean running a server for the group to depend on, which is the one thing
+Hearth is for not doing.
+
+Somebody in the call can share their screen or turn on their camera. It fills the window
+the fire occupies, and follows the person up into a corner of the conversation when they
+scroll away from the fire. Putting that corner away puts the picture away and nothing
+else: they are still in the call, still hearing everyone, and the fire still has the
+picture when they come back to it. A screen is sent at the resolution that keeps ordinary
+text readable and gives up frames rather than pixels under pressure, because a shared
+screen is nearly always words.
 
 ## The interface
 
@@ -188,10 +200,9 @@ exists: the owner mints invite links inside Hearth, a link redeems itself on arr
 and everybody who has no identity on the device lands on one screen that asks for a name
 or takes the one their signing extension already holds. Read `index.html` and `app.js`
 for what's actually wired up — this file won't be kept in sync with every feature as it
-lands. An identity moves to a second device by QR, both flows of it. There is no
-channels, no direct messages, no video and no screen sharing. When a piece of the vision
-above ships, this paragraph should shrink, not grow with a list of what's still
-missing.
+lands. An identity moves to a second device by QR, both flows of it, or by the link
+behind it. There is no channels and no direct messages. When a piece of the vision above
+ships, this paragraph should shrink, not grow with a list of what's still missing.
 
 ## Conventions
 

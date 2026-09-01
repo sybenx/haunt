@@ -105,6 +105,15 @@ const micBtn = document.getElementById("micBtn");
 const micLabelEl = document.getElementById("micLabel");
 const micHintEl = document.getElementById("micHint");
 const leaveBtn = document.getElementById("leaveBtn");
+const shareScreenBtn = document.getElementById("shareScreenBtn");
+const shareCamBtn = document.getElementById("shareCamBtn");
+const vStageEl = document.getElementById("vStage");
+const vPickEl = document.getElementById("vPick");
+const liveVideoEl = document.getElementById("liveVideo");
+const pipEl = document.getElementById("pip");
+const pipStageEl = document.getElementById("pipStage");
+const pipWhoEl = document.getElementById("pipWho");
+const pipXEl = document.getElementById("pipX");
 const mutePillEl = document.getElementById("mutePill");
 const mutePillLabelEl = document.getElementById("mutePillLabel");
 const jumpChipEl = document.getElementById("jumpChip");
@@ -1827,10 +1836,53 @@ const call = {
   joined: false,
   muted: false,
   opening: false, // unmuted, but the microphone is not live yet — never shown as hot
-  presence: new Map(), // pubkey -> { lastSeen, muted }
-  peers: new Map(), // pubkey -> { pc, sender, audioEl, candidateQueue, remoteSet }
+  presence: new Map(), // pubkey -> { lastSeen, muted, sharing }
+  peers: new Map(), // pubkey -> { pc, sender, videoSender, audioEl, candidateQueue, remoteSet }
   speaking: new Set(), // pubkeys (including our own) currently over threshold
   localStream: null,
+  // What we are sending, if anything, and what everyone else is.
+  shareStream: null,
+  shareKind: null,          // "screen" | "camera"
+  streams: new Map(),       // pubkey -> { stream, live }
+  watching: null,           // whose stream fills the window; null picks for itself
+  pipPutAway: false,        // the corner was dismissed, which is not leaving the call
+};
+
+/* ---------- what a shared picture costs, and why these numbers ----------
+
+   This is a mesh: one copy of the picture goes up the sharer's
+   connection for every person watching. Six watchers is six copies,
+   and there is no server anywhere to fan one copy out into six. That
+   is the whole reason for the numbers below being modest, and for
+   hearth saying so when they stop being enough rather than quietly
+   finding a way round it.
+
+   A screen is mostly still and mostly text, so it goes at 720p and
+   few frames. Below that width ordinary interface text stops being
+   readable, which is the only thing a shared screen is for; above it
+   the extra pixels cost bitrate that nobody looking at a phone can
+   see. Frames are what gets given up under pressure, because a
+   readable still beats a smooth blur when what is on screen is words.
+
+   A face is the opposite: small, moving, and worth nothing frozen. It
+   goes at 360p and full motion, at a third of the bitrate.
+
+   Eight hundred kilobits times six watchers is a little under five
+   megabits up, which a decent home connection manages and a poor one
+   does not. What happens then is that it degrades and hearth says so. */
+const SHARE_LIMITS = {
+  screen: {
+    constraints: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 8, max: 15 } },
+    hint: "detail",
+    degradation: "maintain-resolution",
+    maxBitrate: 800000,
+  },
+  camera: {
+    constraints: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24 } },
+    hint: "motion",
+    degradation: "balanced",
+    maxBitrate: 300000,
+  },
 };
 let heartbeatTimer = null;
 let callWarnTimer = null;
@@ -1861,7 +1913,11 @@ function sendSignal(pubkey, payload) {
 
 function publishPresence() {
   sendEphemeral(
-    { kind: KINDS.CALL_PRESENCE, tags: [["h", GROUP_ID]], content: JSON.stringify({ status: "here", muted: call.muted }) },
+    // `sharing` rides along on the beat, so who is sending a picture
+    // is known from presence rather than only from a track turning
+    // up. That is what makes stopping prompt and a chooser possible.
+    { kind: KINDS.CALL_PRESENCE, tags: [["h", GROUP_ID]],
+      content: JSON.stringify({ status: "here", muted: call.muted, sharing: call.shareKind }) },
     "presence beat"
   );
 }
@@ -1887,8 +1943,21 @@ function handlePresence(event) {
     teardownPeer(event.pubkey);
   } else {
     const isNew = !call.presence.has(event.pubkey);
-    call.presence.set(event.pubkey, { lastSeen: Date.now(), muted: !!payload.muted });
-    if (isNew && call.joined) maybeConnectToPeer(event.pubkey);
+    const sharing = typeof payload.sharing === "string" ? payload.sharing : null;
+    call.presence.set(event.pubkey, { lastSeen: Date.now(), muted: !!payload.muted, sharing });
+    // Whether there is a picture to watch is worked out from this
+    // beat and the track together, so the beat is the prompt half of
+    // both starting and stopping. Nothing to set here beyond the
+    // presence itself; renderHearth below asks.
+    if (!sharing && call.watching === event.pubkey) call.watching = null;
+    // Every beat, not only the first. A peer whose connection died —
+    // a reload, a dropped network, a failed ICE restart — goes on
+    // beating presence the whole time, so a connection attempt that
+    // only ever happened on the first beat left the two of them
+    // seated at the same fire hearing nothing from each other until
+    // one of them left. maybeConnectToPeer is a no-op when there is
+    // already a connection, so this costs a map lookup a beat.
+    if (call.joined) maybeConnectToPeer(event.pubkey);
     if (isNew) newsOfVoice(event.pubkey);
   }
   renderHearth();
@@ -1937,11 +2006,24 @@ function createPeer(pubkey, isInitiator) {
     entry.sender.replaceTrack(track).catch((err) => console.error("hearth: replaceTrack", err));
   }
 
+  // A video sender from birth, for the same reason the audio one
+  // exists before there is anything to put in it: the m-line is
+  // negotiated once, at the start, and starting or stopping a share
+  // afterwards is replaceTrack on a sender that is already there. No
+  // renegotiation, so a call never drops because somebody shared.
+  const videoTransceiver = pc.addTransceiver("video", { direction: "sendrecv" });
+  entry.videoSender = videoTransceiver.sender;
+  if (call.shareStream) sendShareTo(entry);
+
   pc.addEventListener("track", (e) => {
     // Transceiver-based senders carry no stream association on the
     // wire, so e.streams can be empty; wrap the bare track so playback
     // and the speaking detector always have a stream to hold.
     const stream = e.streams[0] || new MediaStream([e.track]);
+    if (e.track.kind === "video") {
+      receiveVideoTrack(pubkey, stream, e.track);
+      return;
+    }
     const audioEl = document.createElement("audio");
     audioEl.autoplay = true;
     audioEl.srcObject = stream;
@@ -2027,8 +2109,268 @@ function teardownPeer(pubkey) {
   detachSpeakingDetector(pubkey);
   call.peers.delete(pubkey);
   call.speaking.delete(pubkey);
+  // Whatever they were showing goes with them. This is the path a
+  // closed tab, a dropped connection and a failed peer all arrive
+  // down, so it is the one that has to leave nobody looking at a
+  // picture that stopped moving.
+  call.streams.delete(pubkey);
+  if (call.watching === pubkey) call.watching = null;
+  renderVideo();
   renderHearth();
 }
+
+/* ============================================================
+   a live picture, over the same connections as the voice
+
+   Screens and cameras travel as a video track on a sender that has
+   existed since the connection was made, so starting one is
+   replaceTrack and nothing else: no offer, no answer, no chance of a
+   call dropping because somebody wanted to show something.
+
+   It stays a mesh. Every watcher costs the sharer another copy going
+   up, and there is no unit anywhere fanning one copy out into many.
+   Seven people is the outside of what that can be, and past it the
+   picture gets worse and hearth says why. A group that needs more
+   than this every week wants a different kind of software, and
+   pretending otherwise would mean building one.
+   ============================================================ */
+
+// A sender that has been there all along, given something to send.
+// The limits go on at the same time, because an encoder left to its
+// own judgement will happily try to put a megabit and a half up six
+// connections at once.
+async function sendShareTo(entry) {
+  if (!entry.videoSender || !call.shareStream) return;
+  const track = call.shareStream.getVideoTracks()[0];
+  if (!track) return;
+  try {
+    await entry.videoSender.replaceTrack(track);
+    const limits = SHARE_LIMITS[call.shareKind];
+    const params = entry.videoSender.getParameters();
+    if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+    params.encodings[0].maxBitrate = limits.maxBitrate;
+    params.degradationPreference = limits.degradation;
+    await entry.videoSender.setParameters(params);
+  } catch (err) {
+    console.error("hearth: could not send video to a peer", err);
+  }
+}
+
+async function startSharing(kind) {
+  if (!call.joined) return;
+  const limits = SHARE_LIMITS[kind];
+  let stream;
+  try {
+    stream = kind === "screen"
+      ? await navigator.mediaDevices.getDisplayMedia({ video: limits.constraints, audio: false })
+      : await navigator.mediaDevices.getUserMedia({ video: limits.constraints, audio: false });
+  } catch (err) {
+    // A refusal at the browser's own prompt is somebody changing
+    // their mind, and is not worth a banner.
+    if (err && err.name !== "NotAllowedError") {
+      showBanner("hearth couldn't start that: " + (err.message || err.name));
+    }
+    return;
+  }
+  if (!call.joined) { // left while the prompt was up
+    for (const t of stream.getTracks()) t.stop();
+    return;
+  }
+  stopSharing({ quiet: true }); // one picture at a time, one video sender
+  const track = stream.getVideoTracks()[0];
+  // What the encoder should protect when it cannot have everything.
+  track.contentHint = limits.hint;
+  // The browser's own stop-sharing control, which is the one most
+  // people will reach for on a screen share.
+  track.addEventListener("ended", () => stopSharing());
+  call.shareStream = stream;
+  call.shareKind = kind;
+  for (const entry of call.peers.values()) sendShareTo(entry);
+  publishPresence();
+  watchShareQuality();
+  renderVideo();
+  renderHearth();
+}
+
+function stopSharing(opts) {
+  if (!call.shareStream) return;
+  for (const entry of call.peers.values()) {
+    if (entry.videoSender) entry.videoSender.replaceTrack(null).catch(() => {});
+  }
+  for (const t of call.shareStream.getTracks()) t.stop();
+  call.shareStream = null;
+  call.shareKind = null;
+  clearInterval(shareStatsTimer);
+  shareStatsTimer = null;
+  if (opts && opts.quiet) return; // swapping one share for another
+  publishPresence();
+  renderVideo();
+  renderHearth();
+}
+
+/* ---------- saying so when the connection cannot keep up ----------
+
+   Not a thing to fix, a thing to report. The encoder tells us why it
+   is holding back, and if that is bandwidth or the machine itself
+   then the sharer is trying to serve more people than they can, which
+   is the limit of a mesh rather than a fault. Said once every few
+   minutes at most, because a person cannot act on it more often than
+   that. */
+let shareStatsTimer = null;
+let lastQualityWarning = 0;
+const QUALITY_WARN_GAP_MS = 180000;
+
+function watchShareQuality() {
+  clearInterval(shareStatsTimer);
+  shareStatsTimer = setInterval(async () => {
+    if (!call.shareStream) return;
+    let limited = null;
+    for (const entry of call.peers.values()) {
+      if (!entry.videoSender) continue;
+      let stats;
+      try {
+        stats = await entry.videoSender.getStats();
+      } catch (err) {
+        continue;
+      }
+      stats.forEach((report) => {
+        if (report.type !== "outbound-rtp" || report.kind !== "video") return;
+        const why = report.qualityLimitationReason;
+        if (why === "bandwidth" || why === "cpu") limited = why;
+      });
+    }
+    if (!limited) return;
+    if (Date.now() - lastQualityWarning < QUALITY_WARN_GAP_MS) return;
+    lastQualityWarning = Date.now();
+    showBanner(limited === "cpu"
+      ? "This device is struggling to send the picture to everybody watching."
+      : "Your connection isn't keeping up with this many people watching. Hearth sends one " +
+        "copy to each of them, so this is about the size of group it's for.");
+  }, 5000);
+}
+
+/* ---------- receiving ---------- */
+
+// A remote video track, kept along with the stream so that whether
+// there is anything to look at can be asked rather than remembered.
+function receiveVideoTrack(pubkey, stream, track) {
+  call.streams.set(pubkey, { stream, track });
+  // These are how a sender's replaceTrack arrives here, but they are
+  // a nudge to look again rather than the answer: a track can go on
+  // being unmuted across a stop and a restart, so a flag set by these
+  // events alone gets stuck off and stays there.
+  for (const name of ["mute", "unmute", "ended"]) {
+    track.addEventListener(name, () => {
+      renderVideo();
+      renderHearth();
+    });
+  }
+  renderVideo();
+  renderHearth();
+}
+
+// Asked, never stored. Somebody is worth watching when they say they
+// are sharing and a track is actually arriving, and the moment either
+// of those stops being true there is nothing to show. Deriving it
+// from both is what keeps a stopped share from leaving a frozen
+// picture and a restarted one from never coming back.
+function streamLive(pubkey) {
+  const held = call.streams.get(pubkey);
+  if (!held || !held.track) return false;
+  const seat = call.presence.get(pubkey);
+  if (!seat || !seat.sharing) return false;
+  return !held.track.muted && held.track.readyState === "live";
+}
+
+// Everybody with a picture worth showing, in a stable order so that a
+// chooser does not reshuffle itself under a thumb.
+function liveStreams() {
+  return [...call.streams.keys()].filter(streamLive).sort();
+}
+
+// Whose picture fills the window: the one chosen, or the first there
+// is, which covers the ordinary case of exactly one person sharing.
+function watchedPubkey() {
+  const live = liveStreams();
+  if (call.watching && live.includes(call.watching)) return call.watching;
+  return live.length > 0 ? live[0] : null;
+}
+
+/* ---------- where the picture lives ----------
+
+   One element, moved between the window in the voice view and the
+   corner over the conversation. Moving it keeps one decoder running
+   instead of two, and keeps playing across the move.
+
+   Putting the corner away puts the picture away and touches nothing
+   else: still in the call, still hearing everybody, and the window in
+   the voice view still has it. */
+function renderVideo() {
+  const who = watchedPubkey();
+  const away = ui.mode !== MODE_VOICE;
+  const inCorner = !!who && away && !call.pipPutAway;
+  const inWindow = !!who && !away;
+
+  hearthEl.classList.toggle("watching", inWindow);
+  xShow(vStageEl, inWindow);
+  pipEl.hidden = !inCorner;
+
+  if (!who) {
+    liveVideoEl.hidden = true;
+    liveVideoEl.srcObject = null;
+    if (liveVideoEl.parentNode) liveVideoEl.parentNode.removeChild(liveVideoEl);
+    renderPicker();
+    return;
+  }
+
+  const held = call.streams.get(who);
+  if (liveVideoEl.srcObject !== held.stream) liveVideoEl.srcObject = held.stream;
+  liveVideoEl.hidden = !(inWindow || inCorner);
+  const home = inWindow ? vStageEl : inCorner ? pipStageEl : null;
+  if (home && liveVideoEl.parentNode !== home) home.appendChild(liveVideoEl);
+  if (home) liveVideoEl.play().catch(() => {});
+  pipWhoEl.textContent = displayName(who);
+  renderPicker();
+}
+
+// Only when there is a choice to make. One person sharing needs no
+// chooser, and six buttons for six streams would be a control panel.
+function renderPicker() {
+  const live = liveStreams();
+  const watching = watchedPubkey();
+  vPickEl.innerHTML = "";
+  const show = live.length > 1 && ui.mode === MODE_VOICE;
+  xShow(vPickEl, show);
+  if (!show) return;
+  for (const pubkey of live) {
+    const b = document.createElement("button");
+    b.textContent = displayName(pubkey);
+    if (pubkey === watching) b.className = "on";
+    b.addEventListener("click", () => {
+      call.watching = pubkey;
+      renderVideo();
+    });
+    vPickEl.appendChild(b);
+  }
+}
+
+pipXEl.addEventListener("click", (e) => {
+  e.stopPropagation(); // the corner itself carries you back to the fire
+  call.pipPutAway = true;
+  renderVideo();
+});
+
+pipEl.addEventListener("click", () => scrollToBottom(true));
+
+shareScreenBtn.addEventListener("click", () => {
+  if (call.shareKind === "screen") stopSharing();
+  else startSharing("screen");
+});
+
+shareCamBtn.addEventListener("click", () => {
+  if (call.shareKind === "camera") stopSharing();
+  else startSharing("camera");
+});
 
 /* ---------- speaking: a volume gate per stream, ours included ---------- */
 const SPEAKING_RMS = 0.025;
@@ -2157,6 +2499,7 @@ function toggleMute() {
 
 function leaveCall() {
   if (!call.joined) return;
+  stopSharing({ quiet: true }); // nothing of ours goes on being sent
   micEpoch++; // invalidates any unmute still waiting on getUserMedia
   publishLeavePresence();
   clearInterval(heartbeatTimer);
@@ -2171,6 +2514,12 @@ function leaveCall() {
   call.muted = false;
   call.opening = false;
   call.speaking.delete(identity.pubkey);
+  // Everybody else's picture goes too. Peers are torn down above, and
+  // this is what makes sure nothing is left on screen behind them.
+  call.streams.clear();
+  call.watching = null;
+  call.pipPutAway = false;
+  renderVideo();
   renderHearth();
   // The one moment a held update is allowed to happen.
   applyHeldUpdate();
@@ -2206,6 +2555,13 @@ function buildRing(container, pubkeys) {
       const badge = document.createElement("span");
       badge.className = "badge mutedB";
       badge.innerHTML = '<svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"><rect x="4.4" y="1" width="3.2" height="6" rx="1.6"/><path d="M2.5 5.4v.6a3.5 3.5 0 0 0 7 0v-.6h-1v.6a2.5 2.5 0 0 1-5 0v-.6z"/><line x1="1.5" y1="10.5" x2="10.5" y2="1.5" stroke="#d98a56" stroke-width="1.4" stroke-linecap="round"/></svg>';
+      b.appendChild(badge);
+    }
+    const sharing = isMe ? call.shareKind : (call.presence.get(pubkey) || {}).sharing;
+    if (sharing) {
+      const badge = document.createElement("span");
+      badge.className = "badge sharingB";
+      badge.textContent = sharing === "screen" ? "▣" : "◉";
       b.appendChild(badge);
     }
     const name = document.createElement("span");
@@ -2261,7 +2617,16 @@ function renderHearth() {
     micHintEl.textContent = "tap to mute";
   }
 
+  // Sharing is only offered to somebody already at the fire, and a
+  // screen is only offered where the browser has a way to give one.
+  const canShareScreen = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+  shareScreenBtn.hidden = !(call.joined && canShareScreen);
+  shareCamBtn.hidden = !call.joined;
+  shareScreenBtn.textContent = call.shareKind === "screen" ? "stop sharing your screen" : "share your screen";
+  shareCamBtn.textContent = call.shareKind === "camera" ? "turn your camera off" : "turn your camera on";
+
   updateFloaters();
+  renderVideo();
 }
 
 /* ============================================================
@@ -2363,6 +2728,9 @@ function setMode(mode, animate = true) {
   const wasVoice = ui.mode === MODE_VOICE;
   ui.mode = mode;
   const isVoice = mode === MODE_VOICE;
+  // Coming back to the fire is how somebody who put the corner away
+  // finds the picture again, so arriving here is what un-puts it.
+  if (isVoice) call.pipPutAway = false;
   stageEl.classList.toggle("mode1", isVoice);
   hearthEl.classList.toggle("expanded", isVoice);
   if (isVoice) {
@@ -2383,6 +2751,9 @@ function setMode(mode, animate = true) {
   }
   updateComposerState(animate);
   updateFloaters();
+  // The window and the corner are the same element in two places, and
+  // which place it belongs in is exactly what just changed.
+  renderVideo();
 }
 
 function scrollToBottom(smooth) {

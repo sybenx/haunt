@@ -326,6 +326,62 @@ input{font:inherit;color:inherit;background:none;border:none}
   background:#241811;border:1px solid var(--line2);color:var(--dim);
 }
 .badge.mutedB{color:var(--faint)}
+/* ---------- a live stream, in the window and out of it ----------
+
+   One video element for the whole app, moved between the window in
+   the voice view and the floating corner over the conversation. Moved
+   rather than duplicated, because two elements would be two decoders
+   of the same stream and the second would be there to look at nothing
+   most of the time. */
+.liveVideo{
+  width:100%;height:100%;object-fit:contain;background:#05070a;display:block;
+}
+.vStage{
+  position:relative;width:100%;flex:1;min-height:0;border-radius:14px;overflow:hidden;
+  background:#05070a;border:1px solid rgba(255,190,120,.22);
+}
+/* With something to watch, the window is the point and the fire's own
+   furniture gets out of the way. */
+.hearth.watching .hearthGlow,
+.hearth.watching .hearthLabel{display:none}
+.hearth.watching .hRing{margin-top:10px}
+.vPick{display:flex;justify-content:center;flex-wrap:wrap;gap:6px;margin-top:8px}
+.vPick button{
+  font-size:11px;padding:5px 10px;border-radius:999px;
+  background:var(--raise);border:1px solid var(--line);color:var(--dim);
+}
+.vPick button.on{border-color:rgba(255,158,90,.5);color:var(--ember)}
+.hActions{display:flex;justify-content:center;flex-wrap:wrap;gap:6px}
+.hearth:not(.youIn):not(.youMuted) .hActions{display:none}
+.hAv .badge.sharingB{background:var(--raise2);color:var(--ember)}
+
+/* Floating over the conversation once the fire is scrolled away. The
+   cross puts the picture away and nothing else: the call carries on,
+   and the voice view still has it. */
+.pip{
+  position:absolute;top:12px;right:12px;z-index:30;
+  width:150px;height:94px;border-radius:14px;overflow:hidden;padding:0;
+  border:1px solid rgba(255,190,120,.30);
+  box-shadow:0 14px 34px rgba(0,0,0,.6);
+  background:#05070a;
+}
+.pipStage{position:absolute;inset:0}
+.pipTag{
+  position:absolute;left:7px;bottom:6px;z-index:2;display:flex;align-items:center;gap:5px;
+  font-size:9px;letter-spacing:.08em;color:rgba(240,230,215,.9);font-weight:700;
+  text-shadow:0 1px 3px rgba(0,0,0,.8);
+}
+.pipTag .dotLive{
+  width:5px;height:5px;border-radius:50%;background:var(--live);
+  animation:pipBlink 1.4s ease-in-out infinite;
+}
+@keyframes pipBlink{0%,100%{opacity:1}50%{opacity:.35}}
+.pipX{
+  position:absolute;top:4px;right:4px;z-index:3;width:20px;height:20px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(4,6,9,.6);color:rgba(240,230,215,.8);font-size:11px;line-height:1;
+}
+
 .hCaption{height:18px;margin:14px 0 4px;font-size:12px;color:var(--ember);position:relative}
 .hCaption.quietCap{color:var(--faint)}
 
@@ -676,6 +732,8 @@ input{font:inherit;color:inherit;background:none;border:none}
         <div class="hearthPane">
           <div class="hearthGlow"></div>
           <div class="hearthLabel" id="hearthLabel">the hearth</div>
+          <div class="vStage" id="vStage" hidden></div>
+          <div class="vPick" id="vPick" hidden></div>
           <div class="hRing" id="hRing"></div>
           <div class="hCaption" id="hCaption">&nbsp;</div>
         </div>
@@ -685,9 +743,19 @@ input{font:inherit;color:inherit;background:none;border:none}
           <span class="micSlash"><svg width="46" height="46" viewBox="0 0 46 46"><line x1="10" y1="36" x2="36" y2="10" stroke="#c9a074" stroke-width="3" stroke-linecap="round"/></svg></span>
         </button>
         <div class="micHint" id="micHint"></div>
-        <div><button class="leaveBtn" id="leaveBtn">leave</button></div>
+        <div class="hActions">
+          <button class="leaveBtn" id="shareScreenBtn" hidden>share your screen</button>
+          <button class="leaveBtn" id="shareCamBtn" hidden>turn your camera on</button>
+          <button class="leaveBtn" id="leaveBtn">leave</button>
+        </div>
       </section>
     </div>
+
+    <button class="pip" id="pip" hidden>
+      <span class="pipStage" id="pipStage"></span>
+      <span class="pipTag"><span class="dotLive"></span><span id="pipWho"></span></span>
+      <span class="pipX" id="pipX" role="button" aria-label="put the video away">&#215;</span>
+    </button>
 
     <div class="floaters">
       <button class="mutePill" id="mutePill" hidden>
@@ -794,6 +862,8 @@ input{font:inherit;color:inherit;background:none;border:none}
     </div>
   </div>
 </div>
+
+<video id="liveVideo" class="liveVideo" playsinline autoplay muted hidden></video>
 
 <div class="xfer" id="xfer" hidden>
   <div class="hearthGlow"></div>
