@@ -1,5 +1,5 @@
 /* ============================================================
-   hearth — talks to one bothy relay, in one group, with chat, a
+   Hearth — talks to one bothy relay, in one group, with chat, a
    voice call, and the way in: invite links the owner mints inside
    the app, redeemed on arrival. One group conversation, one group
    call; private conversations and their private calls come later.
@@ -16,7 +16,7 @@ const PRESENCE_TIMEOUT_MS = 13000;
 
 // STUN only, no TURN: enough for a 2-4 person mesh to find each
 // other through most NATs, with no account, token, or server-side
-// component of hearth's own. A mesh that needs to punch through
+// component of Hearth's own. A mesh that needs to punch through
 // symmetric NATs reliably, or that grows past a handful of people,
 // is what an SFU is for — not this build.
 const ICE_SERVERS = [
@@ -286,7 +286,7 @@ async function storedIdentitySource() {
    several browsers on Android that have one.
 
    Hearth asks it for two things: a public key, and a signature on
-   each event. That is all hearth needs — what a group says is
+   each event. That is all Hearth needs — what a group says is
    plaintext to the relay it is stored on, and voice signalling is
    plaintext ephemerals — so none of the encryption an extension
    also offers is asked for.
@@ -391,7 +391,7 @@ function queryRelay(url, filters) {
       if (frame[0] === "EVENT" && frame[1] === "look") found.push(frame[2]);
       // EOSE is a relay that answered. CLOSED is a relay that would
       // rather not — it wants AUTH, or it rate-limited the sub — and
-      // hearth has nothing to offer it: signing an auth event for a
+      // Hearth has nothing to offer it: signing an auth event for a
       // relay this group has no business with would hand that relay a
       // signature for the privilege of being refused. Both mean this
       // relay is done, and waiting the full timeout out on a refusal
@@ -802,7 +802,7 @@ async function privkeyFromText(text, passphrase) {
     privkey = decoded.bytes;
   } else if (decoded.prefix === "ncryptsec") {
     if (decoded.bytes.length !== 91 || decoded.bytes[0] !== 0x02) {
-      throw new Error("that ncryptsec is written in a way hearth doesn't understand");
+      throw new Error("that ncryptsec is written in a way Hearth doesn't understand");
     }
     try {
       privkey = await decryptNcryptsec(decoded.bytes, passphrase);
@@ -811,7 +811,7 @@ async function privkeyFromText(text, passphrase) {
     }
   } else {
     throw new Error("that's " + (decoded.prefix === "npub" ? "a public key" : "an " + decoded.prefix) +
-      ", not a key hearth can sign with");
+      ", not a key Hearth can sign with");
   }
 
   if (privkey.length !== 32) throw new Error("that key is the wrong length");
@@ -831,7 +831,7 @@ function replacementWarning(bringing) {
     // Signing in with an extension leaves a sealed key where it is
     // rather than writing over it, so this must not say it is gone.
     return "Hearth will sign as the identity your extension holds. The key on this device now, " +
-      shortName(identity.pubkey) + ", stays sealed where it is, but nothing in hearth will use it again.";
+      shortName(identity.pubkey) + ", stays sealed where it is, but nothing in Hearth will use it again.";
   }
   const becoming = "Hearth will sign as the key you are importing, sealed on this device in place of " +
     "the one there now.";
@@ -844,7 +844,7 @@ function replacementWarning(bringing) {
 }
 
 // A reload rather than a swap in place: every message on screen, the
-// seats around the fire and the relay's own idea of who is connected
+// people in the call and the relay's own idea of who is connected
 // are all keyed to the identity that was signing a moment ago, and
 // startup already knows how to come up as whoever this device is now.
 async function replaceIdentityWithPrivkey(privkey) {
@@ -899,7 +899,7 @@ function colorFor(pubkey) {
    in the fragment: the code because it is a single-use bearer
    token and a fragment never reaches a server log, a proxy, or a
    Referer header; the relay because it is going the same place
-   anyway. When hearth was served by the relay itself the link
+   anyway. When Hearth was served by the relay itself the link
    carries no relay at all — the page's own origin says it.
 
    Relay priority: the fragment, then ?relay=<host> in the query
@@ -955,7 +955,7 @@ function relayHttpUrl(relayUrl) {
 }
 
 // A relay answers a NIP-11 document at its root, which is both how
-// the room learns its name and how the page finds out whether the
+// the group learns its name and how the page finds out whether the
 // host that served it is a relay. Returns null when the answer is
 // not a NIP-11 document, and throws when the fetch itself fails.
 async function fetchRelayInfo(relayUrl, options) {
@@ -1026,9 +1026,9 @@ let halted = false; // a refused invite is final — no reconnect loop behind it
 // close and message events instead of reconnecting or writing into
 // the new connection's state.
 let connEpoch = 0;
-let roomName = null; // the relay's NIP-11 name — the room's label
+let roomName = null; // the relay's NIP-11 name — the group's label
 
-// The room's name and the connection's state, in both places they
+// The group's name and the connection's state, in both places they
 // appear: under the pill in mode 1, in the top bar in modes 2 and 3.
 // A quiet, connected room shows only its name.
 function renderChrome() {
@@ -1041,7 +1041,7 @@ function renderChrome() {
 }
 
 function setStatus(text, kind) {
-  const hide = kind === "lit"; // connected and quiet — the room's name is enough
+  const hide = kind === "lit"; // connected and quiet — the group's name is enough
   for (const el of [tbStatusEl, vpStatusEl]) {
     el.textContent = text;
     el.classList.toggle("warn", kind === "warn");
@@ -1118,7 +1118,7 @@ function subscribe() {
     // for it costs no more than the `h` beside it.
     { kinds: [KINDS.MEMBER], "#h": [GROUP_ID], "#d": [MEMBER_D] },
     // The two kind 0s worth reading, both as fallbacks and neither
-    // ever written: the group profiles hearth published itself before
+    // ever written: the group profiles Hearth published itself before
     // MEMBER existed, and this identity's own global profile, which
     // is what a name is seeded from at EOSE. A filter that names no
     // group is answered with the group's events left out, so the
@@ -1163,7 +1163,7 @@ async function handleFrame(frame, relayUrl, epoch) {
     // Everything stored is on screen, so anything after this is
     // something that just happened. The call takes a moment longer:
     // it lives in heartbeats rather than in stored events, so the
-    // people already around the fire announce themselves over the
+    // people already in the call announce themselves over the
     // next round of them and none of that is news.
     historyDone = true;
     callNewsAt = Date.now() + HEARTBEAT_MS + 1500;
@@ -1318,14 +1318,14 @@ async function handleFrame(frame, relayUrl, epoch) {
    an old one arriving late from clobbering a rename.
 
    Kind 0 is still read, and only ever read. Members named themselves
-   here before this kind existed and hearth wrote those names into
-   kind 0s that are still on the relay, so a name hearth has not been
+   here before this kind existed and Hearth wrote those names into
+   kind 0s that are still on the relay, so a name Hearth has not been
    given any other way is taken from one rather than lost.
    ============================================================ */
 
 // NIP-78 keys an addressable event by (pubkey, kind, d), and `d` is
 // the only part of that key a client chooses. Kind 30078 is where all
-// of nostr keeps application data, so the value has to say hearth as
+// of nostr keeps application data, so the value has to say Hearth as
 // well as which group: a bare group id would collide with whatever
 // some other application filed under the same one, and the group id
 // on the end is what keeps two groups on one relay apart.
@@ -1378,9 +1378,9 @@ function recordName(map, event) {
   applyName(event.pubkey);
 }
 
-// Once, when the room has finished saying who everybody is: a member
+// Once, when the group has finished saying who everybody is: a member
 // with no name of their own here takes the one their kind 0 carries.
-// That is an existing member, whose name hearth itself wrote into a
+// That is an existing member, whose name Hearth itself wrote into a
 // kind 0 before this kind existed, and it is equally somebody signing
 // in with a key that has a real profile behind it.
 //
@@ -1393,7 +1393,7 @@ function seedNameFromProfile() {
   if (!identity || memberNames.has(identity.pubkey)) return;
   const profile = profileNames.get(identity.pubkey);
   if (!profile) return;
-  // Carried across, not seeded. This kind 0 is one hearth wrote itself
+  // Carried across, not seeded. This kind 0 is one Hearth wrote itself
   // back when a group name was a kind 0, so the name in it is one this
   // person chose for this room — a decision arriving late, and not
   // something the refresh below is entitled to overwrite.
@@ -1438,7 +1438,7 @@ async function refreshSeededName() {
 
 // Message rows already on screen were rendered before this name
 // arrived (or under an older one) — restyle them in place. The
-// hearth rebuilds itself wholesale, so one render call covers it.
+// Hearth rebuilds itself wholesale, so one render call covers it.
 function applyName(pubkey) {
   for (const el of document.querySelectorAll('[data-name-for="' + pubkey + '"]')) {
     el.textContent = displayName(pubkey);
@@ -1459,7 +1459,7 @@ function renderAccountChrome() {
   aoAvatarEl.textContent = initials(identity.pubkey);
   aoNameEl.textContent = displayName(identity.pubkey);
   aoKeyNoteEl.textContent = identity.kind === "extension"
-    ? "Your extension holds this identity's key, and hearth only ever asks it to sign. " +
+    ? "Your extension holds this identity's key, and Hearth only ever asks it to sign. " +
       "Nothing here can read that key, save a copy of it, or carry it to another device."
     : "This key is your identity here and it signs everything you say. It stays on this " +
       "device, sealed so that this page can use it but never read it out. The one way it " +
@@ -1645,14 +1645,14 @@ async function publishMemberName(name, opts) {
     kind: KINDS.MEMBER,
     // Both tags, and each is read by something different. `h` is what
     // files this in the relay's members-only partition, the way every
-    // other event hearth writes is filed. `d` is what makes the event
+    // other event Hearth writes is filed. `d` is what makes the event
     // addressable, which is the whole point of not being a kind 0:
     // this name is keyed by the group as well as by the key that
     // signed it, and a member's real nostr profile has nowhere to land
     // on top of it.
     tags: [["h", GROUP_ID], ["d", MEMBER_D]],
     // seeded says where the name came from, and it is the difference
-    // between a default and a decision. A seeded name is one hearth
+    // between a default and a decision. A seeded name is one Hearth
     // took from this person's own nostr profile on their behalf, and
     // it goes on tracking that profile. A name somebody typed carries
     // no flag and is never touched again.
@@ -1663,10 +1663,10 @@ async function publishMemberName(name, opts) {
 }
 
 /* ============================================================
-   the relay's NIP-11 document: the room's name, and whether this
+   the relay's NIP-11 document: the group's name, and whether this
    identity is the owner
 
-   The relay's stated name is the room's label — in bothy's
+   The relay's stated name is the group's label — in bothy's
    one-group world the relay is the group. Ownership decides
    whether the invite section exists inside the account overlay;
    everyone else never learns it is there. Creating an invite is a
@@ -1691,9 +1691,9 @@ async function loadRelayInfo() {
   renderChrome();
   isOwner = info.pubkey === identity.pubkey;
   aoInvitesEl.hidden = !isOwner;
-  // A relay that can reach somebody with hearth closed publishes the
+  // A relay that can reach somebody with Hearth closed publishes the
   // public half of its VAPID key here. Without one, notifications
-  // are still raised, but only while hearth is open — and the
+  // are still raised, but only while Hearth is open — and the
   // account overlay says so rather than promising otherwise.
   vapidKey = typeof info.push_key === "string" && info.push_key.trim() !== "" ? info.push_key.trim() : null;
   renderNotifyChrome();
@@ -1776,10 +1776,10 @@ async function refreshInviteList() {
     response = await manageRelay("listunusedinvites", []);
   } catch (err) {
     // The management endpoint sends no CORS headers, so a copy of
-    // hearth hosted anywhere but the relay itself can't reach it.
+    // Hearth hosted anywhere but the relay itself can't reach it.
     // Creating invites still works — that goes over the websocket.
     inviteListEl.textContent =
-      "couldn’t reach the relay’s management API from this copy of hearth — " +
+      "couldn’t reach the relay’s management API from this copy of Hearth — " +
       "outstanding invites can only be listed from the copy the relay serves itself.";
     return;
   }
@@ -1819,11 +1819,11 @@ async function refreshInviteList() {
 newInviteBtn.addEventListener("click", createInvite);
 
 /* ============================================================
-   voice call — presence, mesh signalling, and the hearth
+   voice call — presence, mesh signalling, and the call view
 
    Both call kinds are ephemeral (NIP-01: 20000-29999 aren't
    stored). Signalling is addressed to one peer via a p tag; call
-   presence — who's at the hearth right now — is deliberately not
+   presence — who's in the call right now — is deliberately not
    the same thing as group membership: membership is a standing
    grant from the relay owner, presence is "still sending
    heartbeats in the last few seconds."
@@ -1852,7 +1852,7 @@ const call = {
   watching: null,           // whose stream fills the window; null picks for itself
   pipPutAway: false,        // the corner was dismissed, which is not leaving the call
   // Beside a conversation a picture takes the conversation's half,
-  // because that is the half worth giving it and the fire keeps its
+  // because that is the half worth giving it and the call view keeps its
   // own. This is somebody asking for the conversation back.
   streamShrunk: false,
 };
@@ -1862,7 +1862,7 @@ const call = {
    This is a mesh: one copy of the picture goes up the sharer's
    connection for every person watching, and there is no server
    anywhere to fan one copy out into six. That is why the ceilings
-   below are modest and why hearth says so when they stop being
+   below are modest and why Hearth says so when they stop being
    enough rather than quietly finding a way round it.
 
    Two ways to share a screen, because a screen is two different
@@ -2007,7 +2007,7 @@ function publishLeavePresence() {
   );
 }
 
-/* ---------- presence: who's at the hearth right now ---------- */
+/* ---------- presence: who's in the call right now ---------- */
 function handlePresence(event) {
   if (event.pubkey === identity.pubkey) return; // our own heartbeat, echoed back
   let payload;
@@ -2032,7 +2032,7 @@ function handlePresence(event) {
     // a reload, a dropped network, a failed ICE restart — goes on
     // beating presence the whole time, so a connection attempt that
     // only ever happened on the first beat left the two of them
-    // seated at the same fire hearing nothing from each other until
+    // seated in the same call hearing nothing from each other until
     // one of them left. maybeConnectToPeer is a no-op when there is
     // already a connection, so this costs a map lookup a beat.
     if (call.joined) maybeConnectToPeer(event.pubkey);
@@ -2224,7 +2224,7 @@ async function handleSignal(event) {
   }
 
   if (payload.type === "offer") {
-    if (!call.joined) return; // not at the hearth — nothing to answer with
+    if (!call.joined) return; // not in the call — nothing to answer with
     // Hearth never renegotiates: every connection is laid out once at
     // the start and changed after that with replaceTrack alone. So an
     // offer for somebody already connected is that somebody starting
@@ -2316,7 +2316,7 @@ function teardownPeer(pubkey) {
    It stays a mesh. Every watcher costs the sharer another copy going
    up, and there is no unit anywhere fanning one copy out into many.
    Seven people is the outside of what that can be, and past it the
-   picture gets worse and hearth says why. A group that needs more
+   picture gets worse and Hearth says why. A group that needs more
    than this every week wants a different kind of software, and
    pretending otherwise would mean building one.
    ============================================================ */
@@ -2379,7 +2379,7 @@ async function startSharing(kind) {
     // A refusal at the browser's own prompt is somebody changing
     // their mind, and is not worth a banner.
     if (err && err.name !== "NotAllowedError") {
-      showBanner("hearth couldn't start that: " + (err.message || err.name));
+      showBanner("Hearth couldn't start that: " + (err.message || err.name));
     }
     return;
   }
@@ -2629,7 +2629,7 @@ function watchShareQuality() {
 
    The corner over the conversation is deliberately not what gets
    measured. It is a fraction of the size, and a person who drops back
-   to the fire should find a full picture there rather than watch it
+   to the call view should find a full picture there rather than watch it
    sharpen. */
 let viewHeightSent = 0;
 let viewResizeTimer = null;
@@ -2640,20 +2640,20 @@ function viewableHeight() {
   // for a picture nobody can see.
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
   // Whichever box the picture actually goes in. Beside a conversation
-  // that is a half of the window rather than a slice of the fire, and
-  // measuring the fire's slice there would ask everybody for a
+  // that is a half of the window rather than a slice of the call view, and
+  // measuring the call view's slice there would ask everybody for a
   // smaller picture than there is room to show. Somebody who has put
   // the picture in the corner to read means it, so the corner is
   // measured too, and a rung that small is worth asking for. The
   // corner a narrow screen puts it in is not the same thing: that one
-  // lasts as long as the scroll is away from the fire, and dropping a
+  // lasts as long as the scroll is away from the call view, and dropping a
   // rung for it would cost a soft picture on the way back.
   const box = (wide ? (call.streamShrunk ? pipStageEl : vMainEl) : vStageEl)
     .getBoundingClientRect();
   let w = box.width;
   let h = box.height;
   if (!w || !h) {
-    // The box is not on screen to be measured: either the fire is
+    // The box is not on screen to be measured: either the call view is
     // scrolled away, or nobody is sharing yet and the half has not
     // been made. Estimate the size it will have when it appears,
     // which is near enough for choosing a rung.
@@ -2757,7 +2757,7 @@ function watchedPubkey() {
 function renderVideo() {
   const who = watchedPubkey();
   // Beside a conversation the picture takes the conversation's half
-  // rather than a slice of the fire's, so the fire is the same in
+  // rather than a slice of the call view's, so the call view is the same in
   // every state and only the other half changes. On a phone the two
   // are never on screen together, so a picture takes the pane and the
   // corner is what a person gets when they scroll away from it.
@@ -2822,7 +2822,7 @@ function renderPicker() {
 }
 
 pipXEl.addEventListener("click", (e) => {
-  e.stopPropagation(); // the corner itself carries you back to the fire
+  e.stopPropagation(); // the corner itself carries you back to the call view
   call.pipPutAway = true;
   renderVideo();
 });
@@ -2830,7 +2830,7 @@ pipXEl.addEventListener("click", (e) => {
 // Beside a conversation the corner is a picture set aside, so
 // tapping it is asking for it back. On a phone it is a picture
 // following somebody up the scroll, so tapping it goes back down to
-// the fire the picture belongs to.
+// the call view the picture belongs to.
 pipEl.addEventListener("click", () => {
   if (wide) {
     call.streamShrunk = false;
@@ -3022,7 +3022,7 @@ micBtn.addEventListener("click", () => {
 });
 leaveBtn.addEventListener("click", leaveCall);
 
-/* ---------- rendering: the voice screen and the hearth in the scroll ---------- */
+/* ---------- rendering: the voice screen and the call view in the scroll ---------- */
 /* One seat per person, kept and updated rather than thrown away and
    made again.
 
@@ -3039,7 +3039,7 @@ leaveBtn.addEventListener("click", leaveCall);
 function buildRing(container, pubkeys) {
   if (pubkeys.length === 0) {
     if (!container.firstElementChild || !container.firstElementChild.classList.contains("ringEmpty")) {
-      container.innerHTML = '<div class="ringEmpty" style="font-size:12px;color:var(--faint);align-self:center">no one\u2019s by the fire</div>';
+      container.innerHTML = '<div class="ringEmpty" style="font-size:12px;color:var(--faint);align-self:center">no one\u2019s in the call</div>';
     }
     return;
   }
@@ -3116,7 +3116,7 @@ function setBadge(button, kind, html) {
   if (badge.innerHTML !== html) badge.innerHTML = html;
 }
 
-// Tapping somebody at the fire. Only a person with a picture has
+// Tapping somebody in the call. Only a person with a picture has
 // anything to show, and this is the way in to it: it is where a
 // person looks first, and it says so when there is nothing there yet
 // rather than appearing to be broken.
@@ -3138,7 +3138,7 @@ function watchSeat(pubkey) {
   renderPicker();
 }
 
-// One hearth, rendered once, whatever its current size.
+// One call view, rendered once, whatever its current size.
 function renderHearth() {
   const seatedPubkeys = [...call.presence.keys()];
   if (call.joined) seatedPubkeys.unshift(identity.pubkey);
@@ -3147,10 +3147,10 @@ function renderHearth() {
   hearthEl.classList.toggle("cold", seated === 0);
   hearthEl.classList.toggle("youIn", call.joined && !call.muted);
   hearthEl.classList.toggle("youMuted", call.joined && call.muted);
-  hearthLabelEl.textContent = seated === 0 ? "the hearth" : "at the hearth";
+  hearthLabelEl.textContent = "The Hearth";
 
   buildRing(hRingEl, seatedPubkeys);
-  measureCompact(); // who is seated changes the hearth's natural height
+  measureCompact(); // who is seated changes the call view's natural height
 
   const speaker = seatedPubkeys.find((p) => call.speaking.has(p));
   let captionText, quiet;
@@ -3158,7 +3158,7 @@ function renderHearth() {
     captionText = speaker === identity.pubkey ? "you’re talking" : displayName(speaker) + " is talking";
     quiet = false;
   } else if (seated > 0) {
-    captionText = "quiet crackling";
+    captionText = "nobody’s talking";
     quiet = true;
   } else {
     captionText = " ";
@@ -3169,7 +3169,7 @@ function renderHearth() {
 
   if (!call.joined) {
     micLabelEl.textContent = seated === 0 ? "join" : "join them";
-    micHintEl.textContent = seated === 0 ? "the fire is out — tap to light it" : "tap to join them";
+    micHintEl.textContent = seated === 0 ? "tap to join the call" : "tap to join them";
   } else if (call.opening) {
     // The unmute was tapped but the track is not live yet — the mic
     // must say so rather than claim an open microphone.
@@ -3208,7 +3208,7 @@ function renderHearth() {
    the three modes, driven by scroll position
 
    One vertical axis with the voice at the bottom of it, and one
-   voice UI on it: the hearth section at the end of the scroll.
+   voice UI on it: the call view section at the end of the scroll.
    Compact, it sits under the composer and the conversation
    carries it away like any other content — modes 2 and 3.
    Expanded, its height is the whole main area and the scroll is
@@ -3220,7 +3220,7 @@ function renderHearth() {
 
    The detent between modes 1 and 2 is resistive and snaps — it
    completes or it springs back, and it never rests in between. It
-   is crossed by dragging the expanded hearth down, or by pulling
+   is crossed by dragging the expanded call view down, or by pulling
    up past the bottom of the conversation, and by nothing else:
    mode 1 is a place you go on purpose. The boundary between modes
    2 and 3 is ordinary scrolling, with separate enter and leave
@@ -3231,8 +3231,8 @@ const MODE_SPLIT = 2;
 const MODE_CHAT = 3;
 const CHAT_ENTER = 90; // back within this of the bottom, mode 2 returns
 
-// Mode 3 begins where the hearth has fully left the viewport, so the
-// leave threshold follows the hearth's rendered height, which moves
+// Mode 3 begins where the call view has fully left the viewport, so the
+// leave threshold follows the call view's rendered height, which moves
 // with how many people are seated.
 function chatLeaveThreshold() {
   return hearthEl.offsetHeight + 20;
@@ -3241,7 +3241,7 @@ function chatLeaveThreshold() {
 const ui = {
   mode: MODE_VOICE,
   H: 0, // height of the main area, remeasured on resize
-  compactH: 340, // the hearth's natural height, cached while measurable
+  compactH: 340, // the call view's natural height, cached while measurable
   dragging: false,
   kbFocus: false, // composer focused — the keyboard owns the bottom of the screen
 };
@@ -3251,21 +3251,21 @@ const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
 /* ---------- the same design with the scarcity taken out ----------
 
    The three modes exist because a phone cannot show the conversation
-   and the fire at once, so one of them has to be somewhere else and
+   and the call view at once, so one of them has to be somewhere else and
    getting between them is a gesture. Given enough room that problem
    is not there, and neither is anything that answers it: no detent,
    no scroll-driven modes, no floating way back to the bottom, no
    floating mute, and no corner picture, because nothing is ever
    scrolled away from.
 
-   It is the same fire in a different container. The hearth element
+   It is the same call view in a different container. The call view element
    moves out of the conversation's scroll and stands beside it, and
    everything inside it is what it always was.
 
    Where the line falls is a measurement rather than a kind of
    machine. A conversation wants forty characters or so on a line,
    which with an avatar and the padding either side of it comes to
-   about three hundred and sixty; the fire wants its microphone with
+   about three hundred and sixty; the call view wants its microphone with
    a control either side and air between them, which comes to about
    three hundred and twenty once those are sized to the room they are
    in. That is about seven hundred, which is where this starts.
@@ -3273,27 +3273,27 @@ const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
    A phone lying on its side belongs on this side of the line rather
    than the other one, which is the opposite of what it first looks
    like. It has width and almost no height, and the arrangement that
-   stacks the fire on top of the conversation is the one that needs
+   stacks the call view on top of the conversation is the one that needs
    height: given four hundred and thirty of it, that arrangement
    leaves the pane about forty pixels tall and the microphone eating
    half the screen. Two columns is what a wide short window is for.
    So the height asked here is only the floor below which even a
-   column cannot hold a fire, and everything inside the fire is sized
+   column cannot hold a call view, and everything inside the call view is sized
    against the height as well as the width, so that the microphone is
    what gives way rather than the thing being watched. */
 const WIDE = matchMedia("(min-width: 700px) and (min-height: 380px)");
 let wide = false;
 
-// The hearth's natural height can only be read while no inline height
+// The call view's natural height can only be read while no inline height
 // overrides it; cache it whenever that is true, because the expanded
 // state needs it as the other end of the animation.
 function measureCompact() {
   if (!hearthEl.style.height) ui.compactH = hearthEl.offsetHeight;
 }
 
-// One knob moves the whole transition: the hearth's height, with the
+// One knob moves the whole transition: the call view's height, with the
 // scroll pinned to its bottom so growth pushes the conversation up off
-// the screen rather than pushing the fire below it.
+// the screen rather than pushing the call view below it.
 function setHearthHeight(h) {
   hearthEl.style.height = h + "px";
   scrollEl.scrollTop = scrollEl.scrollHeight;
@@ -3328,7 +3328,7 @@ function tweenHearthTo(target, done) {
 function layout() {
   ui.H = mainEl.clientHeight;
   if (wide) {
-    // The fire is a column with its own height and nothing drives it.
+    // The call view is a column with its own height and nothing drives it.
     if (composerState === "docked") placeComposer(slotRect(), 0);
     else if (composerState === "lifted") rideKeyboard();
     return;
@@ -3357,7 +3357,7 @@ function applyWidth(force) {
     hearthEl.style.height = ""; // the column has its own height
     hearthEl.classList.add("expanded");
     stageEl.classList.remove("mode1"); // the composer is not the pill here
-    ui.mode = MODE_VOICE; // the fire is showing, which is what that means
+    ui.mode = MODE_VOICE; // the call view is showing, which is what that means
     cancelAnimationFrame(tweenId);
     tweenId = null;
   } else if (hearthEl.parentNode !== scrollEl) {
@@ -3373,7 +3373,7 @@ function applyWidth(force) {
 WIDE.addEventListener("change", () => applyWidth(true));
 // The same crossing, caught by the event every browser fires for
 // every resize and rotation. If the query's own change ever fails to
-// arrive, what is left is the fire in one arrangement and the
+// arrive, what is left is the call view in one arrangement and the
 // stylesheet drawing the other, which is worth one comparison to
 // rule out. Nothing happens here unless the answer has changed.
 window.addEventListener("resize", () => applyWidth());
@@ -3384,7 +3384,7 @@ function setMode(mode, animate = true) {
   const wasVoice = ui.mode === MODE_VOICE;
   ui.mode = mode;
   const isVoice = mode === MODE_VOICE;
-  // Coming back to the fire is how somebody who put the corner away
+  // Coming back to the call view is how somebody who put the corner away
   // finds the picture again, so arriving here is what un-puts it.
   if (isVoice) call.pipPutAway = false;
   stageEl.classList.toggle("mode1", isVoice);
@@ -3395,7 +3395,7 @@ function setMode(mode, animate = true) {
   } else if (wasVoice || hearthEl.style.height) {
     // Coming down from the voice screen, or abandoning a part-drawn
     // drag: settle to the natural compact height, then hand the height
-    // back to the stylesheet so the hearth can breathe with its ring.
+    // back to the stylesheet so the call view can breathe with its ring.
     // The pinning inside the tween is what lands the scroll at the
     // bottom of the conversation — mode 2's one position.
     const settle = () => {
@@ -3410,7 +3410,7 @@ function setMode(mode, animate = true) {
   // The window and the corner are the same element in two places, and
   // which place it belongs in is exactly what just changed.
   renderVideo();
-  // Arriving at the fire is the first chance to measure the window
+  // Arriving in the call is the first chance to measure the window
   // rather than estimate it.
   if (isVoice) viewChanged();
 }
@@ -3541,7 +3541,7 @@ mutePillEl.addEventListener("click", () => toggleMute());
 // mode 1: a button should not push someone through a resistive gesture.
 jumpChipEl.addEventListener("click", () => scrollToBottom(true));
 
-/* ---------- the detent, side one: dragging the expanded hearth down ---------- */
+/* ---------- the detent, side one: dragging the expanded call view down ---------- */
 let drag = null;
 let justDragged = false;
 
@@ -3551,7 +3551,7 @@ hearthEl.addEventListener("pointerdown", (e) => {
   // pixels on the way up, which was enough to start a drag, and once
   // a drag captures the pointer the click is delivered to whatever
   // holds the capture instead of to the button underneath. Tapping
-  // somebody at the fire did nothing on a phone for that reason and
+  // somebody in the call did nothing on a phone for that reason and
   // worked on a desktop, where a mouse does not move while it is
   // being pressed.
   if (e.target.closest("button")) return;
@@ -3567,12 +3567,12 @@ hearthEl.addEventListener("pointermove", (e) => {
     ui.dragging = true;
     cancelAnimationFrame(tweenId);
     tweenId = null;
-    // Capture so the drag survives leaving the hearth's bounds. A
+    // Capture so the drag survives leaving the call view's bounds. A
     // pointer that cannot be captured (synthetic events in tests)
     // still drags.
     try { hearthEl.setPointerCapture(drag.id); } catch (err) {}
   }
-  // Resistive: the hearth follows the finger at a discount, and past
+  // Resistive: the call view follows the finger at a discount, and past
   // its two rest heights it turns to rubber.
   let h = ui.H + dy * 0.85; // dy is negative when pulling down toward chat
   if (h > ui.H) h = ui.H + (h - ui.H) * 0.2;
@@ -3799,7 +3799,7 @@ function renderRelayList() {
 }
 
 // Everything shown is per-relay — the messages, the names, the
-// presence, the room's own name — so a switch clears it all and lets
+// presence, the group's own name — so a switch clears it all and lets
 // the new relay say who and what this room is.
 function switchRelay(url) {
   if (url === currentRelayUrl) return;
@@ -3942,16 +3942,16 @@ aoConfirmNoBtn.addEventListener("click", () => {
 
    The unread count in the tab and on the icon costs nothing and
    asks nobody: it is just the title and the favicon, and it works
-   in every browser hearth runs in.
+   in every browser Hearth runs in.
 
-   A banner raised while hearth is open needs permission, and on a
+   A banner raised while Hearth is open needs permission, and on a
    phone it needs the service worker — android's chrome refuses the
    Notification constructor outright, and safari does not have one
    at all unless the page has been added to the home screen. So
    every banner goes through the registration, on every platform,
    rather than branching on which.
 
-   A notification that arrives when hearth is closed is a push, and
+   A notification that arrives when Hearth is closed is a push, and
    a push needs a server to send it. That is the relay's job and
    the relay has to grow it: see reference/push.md. Everything here
    does its half — reads the key, subscribes, hands the
@@ -3974,8 +3974,8 @@ function notifyWanted() {
   return localStorage.getItem(NOTIFY_KEY) === "on";
 }
 
-// Not looking means the tab is elsewhere, or hearth is showing the
-// fire rather than the conversation, or the conversation is scrolled
+// Not looking means the tab is elsewhere, or Hearth is showing the
+// call view rather than the conversation, or the conversation is scrolled
 // back through history. In none of those is a message on screen.
 function notLooking() {
   if (document.visibilityState !== "visible") return true;
@@ -3987,9 +3987,9 @@ function notLooking() {
 
 /* ---------- the count in the tab and on the icon ---------- */
 
-// The same fire the page loaded with, with an ember sitting on its
+// The same icon the page loaded with, with an unread dot sitting on its
 // shoulder. Drawn here rather than kept as a second file for the
-// reason the first one is inline: a copy of hearth is one thing.
+// reason the first one is inline: a copy of Hearth is one thing.
 function faviconWith(dot) {
   const flame =
     "<rect width='32' height='32' rx='7' fill='%231a120c'/>" +
@@ -4021,7 +4021,7 @@ function clearUnread() {
 
 /* ---------- the banner ---------- */
 
-// Silent on hearth's side. The phone makes whatever noise the
+// Silent on Hearth's side. The phone makes whatever noise the
 // person has told it to make for notifications, which is the noise
 // they actually chose.
 async function raiseBanner(title, body, tag) {
@@ -4050,13 +4050,13 @@ function newsOfMessage(pubkey) {
   if (!notLooking()) return;
   unread += 1;
   renderUnread();
-  raiseBanner(roomName || "hearth", displayName(pubkey) + " said something", "message");
+  raiseBanner(roomName || "Hearth", displayName(pubkey) + " said something", "message");
 }
 
 function newsOfVoice(pubkey) {
   if (Date.now() < callNewsAt) return; // still finding out who was already here
   if (!notLooking()) return;
-  raiseBanner(roomName || "hearth", displayName(pubkey) + " is at the fire", "voice");
+  raiseBanner(roomName || "Hearth", displayName(pubkey) + " joined the call", "voice");
 }
 
 /* ---------- turning it on ---------- */
@@ -4071,7 +4071,7 @@ function renderNotifyChrome() {
   if (!supported) {
     aoNotifyBtn.hidden = true;
     aoNotifyNoteEl.textContent =
-      "This browser can't raise a notification. On an iPhone, adding hearth to the home " +
+      "This browser can't raise a notification. On an iPhone, adding Hearth to the home " +
       "screen from the share menu gives it one.";
     return;
   }
@@ -4080,7 +4080,7 @@ function renderNotifyChrome() {
     aoNotifyBtn.disabled = true;
     aoNotifyBtn.textContent = "notifications are blocked";
     aoNotifyNoteEl.textContent =
-      "This browser has been told not to let hearth notify you, and only you can undo that, " +
+      "This browser has been told not to let Hearth notify you, and only you can undo that, " +
       "in the site settings your browser keeps for this page.";
     return;
   }
@@ -4088,15 +4088,15 @@ function renderNotifyChrome() {
   if (notifyWanted() && Notification.permission === "granted") {
     aoNotifyBtn.textContent = "turn notifications off";
     aoNotifyNoteEl.textContent = vapidKey
-      ? "You'll be told when somebody says something or comes to the fire, including when " +
-        "hearth is closed."
-      : "You'll be told when somebody says something or comes to the fire, as long as hearth " +
+      ? "You'll be told when somebody says something or joins the call, including when " +
+        "Hearth is closed."
+      : "You'll be told when somebody says something or joins the call, as long as Hearth " +
         "is open. This relay can't reach you when it isn't.";
     return;
   }
   aoNotifyBtn.textContent = "turn on notifications";
   aoNotifyNoteEl.textContent =
-    "Be told when somebody says something or comes to the fire while you're looking elsewhere.";
+    "Be told when somebody says something or joins the call while you're looking elsewhere.";
 }
 
 async function turnNotificationsOn() {
@@ -4156,7 +4156,7 @@ async function subscribeToPush() {
     });
     await manageRelay("subscribepush", [JSON.parse(JSON.stringify(sub))]);
   } catch (err) {
-    // No push, then. The banner while hearth is open still works,
+    // No push, then. The banner while Hearth is open still works,
     // and saying so is renderNotifyChrome's job rather than a
     // failure worth putting in front of somebody.
   }
@@ -4190,7 +4190,7 @@ function registerWorker() {
 }
 
 // Coming back to the conversation is what marks it read, and being
-// at the fire is not coming back to it.
+// in the call is not coming back to it.
 document.addEventListener("visibilitychange", () => {
   if (!notLooking()) clearUnread();
 });
@@ -4201,7 +4201,7 @@ scrollEl.addEventListener("scroll", () => {
 /* ============================================================
    carrying this identity to another device
 
-   keyxfer.js is the protocol and knows nothing about hearth; this
+   keyxfer.js is the protocol and knows nothing about Hearth; this
    is the screen in front of it. Two devices, one code, and two
    deliberate taps: the person holding the key says send, and the
    person receiving it says that the identity that turned up is
@@ -4211,7 +4211,7 @@ scrollEl.addEventListener("scroll", () => {
 
    Which device shows the code is a matter of which one has a
    camera pointing the right way, so both ways round are here. The
-   one hearth offers first is the new device showing and the old
+   one Hearth offers first is the new device showing and the old
    device scanning, because the old device is usually the phone.
    ============================================================ */
 /* Whether the key is locked to this device.
@@ -4288,9 +4288,9 @@ function renderTransfers() {
    Not the nostr+keyxfer URI on its own. A phone's own camera app,
    which is what somebody actually points at a screen, hands an
    unknown scheme to a web search rather than to an app, and no
-   browser has registered that scheme because hearth is a page rather
+   browser has registered that scheme because Hearth is a page rather
    than an installed app. So the code carries an ordinary https link
-   to this copy of hearth, with the pairing URI inside it, and the
+   to this copy of Hearth, with the pairing URI inside it, and the
    phone opens what it always opens.
 
    In the fragment rather than the query, because a fragment is never
@@ -4305,12 +4305,12 @@ function renderTransfers() {
 const PAIR_PARAM = "pair";
 const PAIR_SCHEME = "nostr+keyxfer://";
 
-// The inverse of pairingLink, and the only thing in hearth that
+// The inverse of pairingLink, and the only thing in Hearth that
 // decides what a device code looks like. Both readers go through it:
 // the scanner pointing a camera at a screen, and the page that was
 // opened by following one. They disagreed once — the code became a
-// link and only the page-load half was taught to read it, so hearth
-// refused the code hearth had just drawn — and one function is what
+// link and only the page-load half was taught to read it, so Hearth
+// refused the code Hearth had just drawn — and one function is what
 // stops that being possible rather than unlikely.
 //
 // Takes a link, a whole page URL, or a bare pairing URI, and returns
@@ -4324,10 +4324,10 @@ function innerPairingUri(text) {
   try {
     hash = new URL(trimmed).hash;
   } catch (err) {
-    throw new Error("that code isn't a hearth device code");
+    throw new Error("that code isn't a Hearth device code");
   }
   const inner = pairFromFragment(hash.slice(1));
-  if (!inner) throw new Error("that code isn't a hearth device code");
+  if (!inner) throw new Error("that code isn't a Hearth device code");
   return inner;
 }
 
@@ -4362,7 +4362,7 @@ function isLoopback(host) {
     host === "::1" || host === "0.0.0.0" || host.endsWith(".localhost");
 }
 
-// The link the QR draws, built from wherever this copy of hearth was
+// The link the QR draws, built from wherever this copy of Hearth was
 // served from. A copy served by a relay points at that relay and the
 // canonical copy points at itself, so the code never sends anybody to
 // a copy the pair has no reason to be able to reach.
@@ -4774,7 +4774,7 @@ let xferOnClose = null;
 // the device showing a code.
 let xferScanned = null;
 let xferShowing = false;
-// Where the room is, as told by each device offering a key, kept
+// Where the group is, as told by each device offering a key, kept
 // beside the key itself until one of them is accepted.
 const xferRelays = new Map();
 
@@ -4922,7 +4922,7 @@ function openPairing(pairing, onClose) {
     xRender({
       title: "add a device",
       note: identity
-        ? "Your extension holds this identity's key and hearth only ever asks it to sign, " +
+        ? "Your extension holds this identity's key and Hearth only ever asks it to sign, " +
           "so there is no key here to send."
         : "That code is asking for an account, and this device doesn't have one yet. Scan it " +
           "with the device that does.",
@@ -4948,7 +4948,7 @@ function openTransfer(role, onClose) {
     if (!identity.holdsPrivateKey) {
       xRender({
         title: "add a device",
-        note: "Your extension holds this identity's key and hearth only ever asks it to sign, " +
+        note: "Your extension holds this identity's key and Hearth only ever asks it to sign, " +
           "so there is no key here to send. Add the other device from your extension instead.",
         buttons: [{ label: "close", onClick: closeTransfer }],
       });
@@ -4968,7 +4968,7 @@ function openTransfer(role, onClose) {
     }
   }
 
-  // The offer hearth makes first: the new device shows a code and the
+  // The offer Hearth makes first: the new device shows a code and the
   // device that already has the key scans it. The other way round is
   // one tap away, for a pair whose cameras are the wrong way round.
   if (role === "holder") beginScanning();
@@ -5095,10 +5095,10 @@ async function onTransferEvent(type, data) {
     xShow(xQrEl, true);
     if (!link.reachable) {
       xMultiEl.textContent = link.reason === "loopback"
-        ? "This copy of hearth is being served from an address that only means something on " +
+        ? "This copy of Hearth is being served from an address that only means something on " +
           "this machine, so another device cannot open what this code points at. It works " +
-          "wherever hearth is served from an address both devices can reach."
-        : "This copy of hearth is not being served over the web, so another device cannot " +
+          "wherever Hearth is served from an address both devices can reach."
+        : "This copy of Hearth is not being served over the web, so another device cannot " +
           "open what this code points at.";
       xShow(xMultiEl, true);
     }
@@ -5165,7 +5165,7 @@ async function onTransferEvent(type, data) {
     return;
   }
 
-  // The other device saying where the room is. Held rather than
+  // The other device saying where the group is. Held rather than
   // written down: until the person has agreed to the identity that
   // arrived, this is a stranger's list of servers and has no business
   // on this device.
@@ -5239,7 +5239,7 @@ async function sendKey(data) {
   await xfer.approve(data.peer, S.utils.bytesToHex(identity.privkey), "device");
   // Straight after the key, in the same session, to the same burner:
   // the relays this device has reached this room on. A device holding
-  // a key and no idea where the room is would land on a box asking
+  // a key and no idea where the group is would land on a box asking
   // for a server address, which is precisely what somebody who just
   // held two phones together was spared. Sent immediately rather than
   // waiting for the receipt, because the far side stores the key and
@@ -5306,7 +5306,7 @@ async function keepReceivedKey(peerHex) {
   // Remembered exactly as a relay this device had reached would be,
   // last first, so the other device's first choice ends up this
   // device's first choice. With this list in hand the reload below
-  // goes straight into the room and asks nothing.
+  // goes straight into the group and asks nothing.
   for (const url of (xferRelays.get(peerHex) || []).slice().reverse()) {
     if (typeof url === "string" && /^wss?:\/\//.test(url)) rememberRelay(url);
   }
@@ -5359,7 +5359,7 @@ aoFromDeviceBtn.addEventListener("click", () => openTransfer("joiner"));
 aoAllowSendBtn.addEventListener("click", () => setKeyLocked(!keyLocked()));
 
 /* ============================================================
-   noticing that a newer hearth has been deployed
+   noticing that a newer Hearth has been deployed
 
    This page is meant to sit open on a phone for days, and a page
    that is open is a page that will never fetch itself again. The
@@ -5379,7 +5379,7 @@ aoAllowSendBtn.addEventListener("click", () => setKeyLocked(!keyLocked()));
 const VERSION_URL = "version.json";
 // Four hours between asks, which for a courtesy is often enough. The
 // check that matters is the one below it: somebody picking their
-// phone up is about to use hearth, and that is the moment to have
+// phone up is about to use Hearth, and that is the moment to have
 // looked.
 const UPDATE_EVERY_MS = 4 * 60 * 60 * 1000;
 // A phone switching between apps fires visibility changes constantly,
@@ -5409,7 +5409,7 @@ async function fetchDeployedVersion() {
 }
 
 function showUpdateOffer() {
-  updateBarEl.textContent = "a newer hearth is ready, tap to load it";
+  updateBarEl.textContent = "a new version is ready, tap to load it";
   updateBarEl.hidden = false;
 }
 
@@ -5424,7 +5424,7 @@ async function checkForUpdate() {
 updateBarEl.addEventListener("click", () => {
   if (call.joined) {
     updateWanted = true;
-    updateBarEl.textContent = "the newer hearth will load when the call ends";
+    updateBarEl.textContent = "the new version will load when the call ends";
     return;
   }
   location.reload();
@@ -5486,7 +5486,7 @@ function start(relayUrl) {
 
   layout();
   applyWidth(true); // which arrangement there is room for
-  setMode(MODE_VOICE, false); // the room's face is the fire
+  setMode(MODE_VOICE, false); // the group's face is the call view
   new ResizeObserver(layout).observe(mainEl);
 
   // A pairing link this device is the holder for. It waits until here

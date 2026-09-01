@@ -19,14 +19,14 @@
 <link rel="apple-touch-icon" href="icon.svg">
 <style>
 /* ============================================================
-   hearth — the room, and a fire in it.
+   Hearth — the group, and the call in it.
    Palette and shapes lifted from the two mocks in reference/:
    client-mobile.html for the ground, bothy-client-mock.html for
    the voice screen. Warm dark ground, brass as the only accent.
 
    The screen is one vertical arrangement, driven by scroll: one
-   scroll holding the messages, the composer, and the hearth after
-   it. The hearth is one element with two states: compact, an
+   scroll holding the messages, the composer, and the call view after
+   it. The call view is one element with two states: compact, an
    ordinary section at the bottom of the conversation (mode 2)
    that scrolling up carries away (mode 3); expanded, the same
    elements filling the screen as the voice UI (mode 1). app.js
@@ -47,8 +47,8 @@
   --ember-hot:#ffc07a;
   --ember-deep:#b85f27;
   --live:#ff6d5a;
-  /* The one cool colour at the hearth, and it means somebody is
-     showing something. Cool because red against the fire's orange is
+  /* The one cool colour in the call, and it means somebody is
+     showing something. Cool because red against the call view's orange is
      the hardest pair for the commonest colour blindness, and this has
      to be told apart from the ring that means somebody is talking. */
   --stream:#5ad1ff;
@@ -105,14 +105,14 @@ input{font:inherit;color:inherit;background:none;border:none}
 /* warning banners: a corrupted identity store, dev-identity load
    failure, call-signal refusals. Pinned below the topbar rather than in
    the scroll, so they're seen regardless of where the chat or the
-   hearth happen to be scrolled to. */
+   Hearth happen to be scrolled to. */
 .warnBanner{
   margin:10px 18px 0;padding:10px 14px;border-radius:10px;
   background:rgba(255,109,90,.10);border:1px solid rgba(255,109,90,.35);
   color:var(--live);font-size:12px;line-height:1.5;
 }
 
-/* A newer hearth is out there. Quiet, in the flow rather than over
+/* A newer Hearth is out there. Quiet, in the flow rather than over
    it, and the width of the room so that it is plainly a line to tap
    rather than something that has gone wrong. */
 .updateBar{
@@ -161,11 +161,11 @@ input{font:inherit;color:inherit;background:none;border:none}
 /* ---------- the main area ---------- */
 .main{flex:1;min-height:0;position:relative;overflow:hidden;background:var(--room)}
 /* In mode 1 the scroll is parked at its bottom with the expanded
-   hearth filling the viewport; the conversation above it must not be
+   Hearth filling the viewport; the conversation above it must not be
    scrollable underneath the voice screen. */
 .stage.mode1 .scroll{overflow:hidden}
 
-/* ---------- the chat scroll: messages, composer, then the hearth ---------- */
+/* ---------- the chat scroll: messages, composer, then the call view ---------- */
 .scroll{
   height:100%;overflow-y:auto;overscroll-behavior:contain;
   position:relative;display:flex;flex-direction:column;
@@ -195,7 +195,7 @@ input{font:inherit;color:inherit;background:none;border:none}
 .mFail{font-size:12px;color:var(--live);margin-top:2px}
 
 /* The composer and the chat pill are ONE element in three positions:
-   in the flow above the hearth (modes 2 and 3, where it scrolls with
+   in the flow above the call view (modes 2 and 3, where it scrolls with
    the conversation and keeps the mic below itself), docked into the
    top bar's slot as the pill (mode 1), and lifted above the keyboard
    while focused. Focusing is this element travelling, not one control
@@ -247,11 +247,11 @@ input{font:inherit;color:inherit;background:none;border:none}
 }
 .jump .down{color:var(--ember)}
 
-/* ---------- the hearth: one element, two states ----------
+/* ---------- the call view: one element, two states ----------
    Compact, it is reference/client-mobile.html's hearth: an ordinary
    section at the bottom of the scroll that the conversation carries away.
    Expanded (mode 1), the same elements fill the screen: the pane
-   rises around the ring, the microphone grows, the room's label
+   rises around the ring, the microphone grows, the group's label
    appears under the pill. app.js animates the section's height
    between the two while these transitions morph the insides, so the
    detent reads as one object snapping between two states of itself —
@@ -277,7 +277,7 @@ input{font:inherit;color:inherit;background:none;border:none}
 .vpName{font-family:var(--serif);font-size:15px;color:var(--dim);letter-spacing:.02em}
 .vpStatus{font-size:11px;color:var(--faint);margin-top:2px;letter-spacing:.03em}
 
-/* the pane around the ring: invisible in the compact hearth, a
+/* the pane around the ring: invisible in the compact call view, a
    bordered panel when expanded */
 .hearthPane{
   position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -328,7 +328,7 @@ input{font:inherit;color:inherit;background:none;border:none}
    colour. Red on orange is the pair a red-green colour blind person
    can least tell apart, and that is the commonest kind, so the colour
    moved to a cool one that no form of colour blindness confuses with
-   the fire — and then the ring was made thicker, dashed rather than
+   the call view — and then the ring was made thicker, dashed rather than
    solid, and turned slowly, so that somebody who sees no colour
    difference at all still sees three. The turn is slow enough to read
    as live rather than as something loading. */
@@ -368,7 +368,7 @@ input{font:inherit;color:inherit;background:none;border:none}
   position:relative;width:100%;flex:1;min-height:0;border-radius:14px;overflow:hidden;
   background:#05070a;border:1px solid rgba(255,190,120,.22);
 }
-/* With something to watch, the window is the point and the fire's own
+/* With something to watch, the window is the point and the call view's own
    furniture gets out of the way. */
 .hearth.watching .hearthGlow,
 .hearth.watching .hearthLabel{display:none}
@@ -424,8 +424,8 @@ input{font:inherit;color:inherit;background:none;border:none}
 /* Each side is pinned to its own column and the microphone is pinned
    to the middle one. Pinned rather than left to fall into place,
    because auto placement fills the first free column: with the
-   flanking buttons hidden, which they are until somebody is at the
-   fire, the microphone would slide into the empty left-hand track. */
+   flanking buttons hidden, which they are until somebody is in the
+   call, the microphone would slide into the empty left-hand track. */
 .callBtns{
   /* Centred in the space beside the microphone rather than shoved up
      against it, which is what puts air on both sides of it. */
@@ -489,7 +489,7 @@ input{font:inherit;color:inherit;background:none;border:none}
 .hAv .badge.sharingB{background:#0d2430;border-color:rgba(90,209,255,.45);color:var(--stream)}
 .hAv .badge.sharingB svg{width:11px;height:11px}
 
-/* Floating over the conversation once the fire is scrolled away. The
+/* Floating over the conversation once the call view is scrolled away. The
    cross puts the picture away and nothing else: the call carries on,
    and the voice view still has it. */
 .pip{
@@ -517,8 +517,8 @@ input{font:inherit;color:inherit;background:none;border:none}
 }
 
 .hCaption{height:18px;margin:14px 0 4px;font-size:12px;color:var(--ember);position:relative}
-/* Both of these are the fire naming itself and saying who is talking,
-   which is worth the room it takes on a screen that is only the fire
+/* Both of these are the call view naming itself and saying who is talking,
+   which is worth the room it takes on a screen that is only the call view
    and is not worth it beside a conversation. The ring of faces says
    who is here, the lit one says who is speaking, and taking these two
    lines away is what leaves the microphone somewhere to grow. */
@@ -530,7 +530,7 @@ input{font:inherit;color:inherit;background:none;border:none}
    small beside the conversation: its size is a transition, not a
    different button. The compact size is what the row can spare with
    the two controls either side of it left at the size they are, which
-   is most of the width once the fire's own two lines of writing are
+   is most of the width once the call view's own two lines of writing are
    out of the way. */
 .mic{
   position:relative;flex:0 0 auto;
@@ -720,7 +720,7 @@ input{font:inherit;color:inherit;background:none;border:none}
 .lgLast .relayRow button{background:var(--raise2);color:var(--dim);font-weight:400}
 .npFail{font-size:12.5px;line-height:1.5;color:var(--live)}
 
-/* the transfer screen: one thing at a time, over the fire */
+/* the transfer screen: one thing at a time, over the call view */
 .xfer{
   position:fixed;inset:0;z-index:60;background:var(--stage);
   display:flex;align-items:center;justify-content:center;overflow-y:auto;
@@ -819,15 +819,15 @@ input{font:inherit;color:inherit;background:none;border:none}
 /* ============================================================
    room for both
 
-   Not a second design: the same elements, with the fire lifted out of
+   Not a second design: the same elements, with the call view lifted out of
    the conversation's scroll to stand beside it. Everything here is a
-   container and a few sizes. Nothing inside the fire or inside a
+   container and a few sizes. Nothing inside the call view or inside a
    message knows this arrangement exists, which is what keeps one
    change from having to be made twice.
 
    Both dimensions are asked. A phone lying on its side wants this
    arrangement rather than the other one, so the height here is only
-   the floor below which a column cannot hold a fire at all; what
+   the floor below which a column cannot hold a call view at all; what
    makes such a phone work is that the sizes below are written against
    the height as well as the width. See app.js for both numbers.
    ============================================================ */
@@ -839,7 +839,7 @@ input{font:inherit;color:inherit;background:none;border:none}
   .stage{max-width:1200px}
   .main{
     display:grid;
-    /* The conversation takes what is left; the fire takes what it
+    /* The conversation takes what is left; the call view takes what it
        needs and no more, so a very wide window gives the extra to the
        words rather than to an enormous microphone. */
     grid-template-columns:minmax(0,1fr) clamp(320px,34vw,420px);
@@ -859,7 +859,7 @@ input{font:inherit;color:inherit;background:none;border:none}
   .vMain{grid-area:1/1;z-index:2;position:relative;background:#05070a}
   .hearth{grid-area:1/2}
   /* The picture is the whole of that half. Its own element is the one
-     moved here from the fire, so it is the same decoder either way. */
+     moved here from the call view, so it is the same decoder either way. */
   .vMain .liveVideo{position:absolute;inset:0;width:100%;height:100%}
   .vShrink{
     position:absolute;top:10px;right:10px;z-index:3;
@@ -869,7 +869,7 @@ input{font:inherit;color:inherit;background:none;border:none}
   }
   .vShrink svg{width:17px;height:17px}
   /* The corner belongs over the conversation, which is the half it
-     hands back, and not over the fire. */
+     hands back, and not over the call view. */
   .pip{left:12px;right:auto}
 
   .hearth{
@@ -878,8 +878,8 @@ input{font:inherit;color:inherit;background:none;border:none}
     justify-content:flex-start;
   }
   /* The handle is something to pull, and there is nothing to pull it
-     into. The fire's own name and connection line go too: the top bar
-     carries both, and beside it they were the room's name written
+     into. The call view's own name and connection line go too: the top bar
+     carries both, and beside it they were the group's name written
      twice on one screen. */
   .stage.wide .hearth.expanded .vpGrab,
   .stage.wide .hearth.expanded .vpTag{display:none}
@@ -887,7 +887,7 @@ input{font:inherit;color:inherit;background:none;border:none}
   /* Sized to the column and to the height, not to the window. The
      window is a great deal wider than the column, and on a phone
      lying on its side it is a great deal wider than it is tall: the
-     microphone is the biggest thing in the fire, so it is what has to
+     microphone is the biggest thing in the call view, so it is what has to
      give first, or there is no room left for anything worth
      watching. The floor under the two controls is a thumb: a target
      smaller than this is one somebody misses. */
@@ -901,13 +901,13 @@ input{font:inherit;color:inherit;background:none;border:none}
 }
 
 /* A window with width and little height is a phone on its side, and
-   the two columns above are what it wants: stacking the fire on top
+   the two columns above are what it wants: stacking the call view on top
    of the conversation is what leaves it with neither. What it cannot
    spare is any line that is only telling somebody something they can
    already see. */
 @media (min-width: 700px) and (min-height: 380px) and (max-height: 560px) {
   .stage.wide .hCaption{display:none}
-  /* The column is plainly the fire, sitting beside a conversation
+  /* The column is plainly the call view, sitting beside a conversation
      that is plainly the conversation, so the heading over it is a
      line naming what is already in front of them. */
   .stage.wide .hearthLabel{display:none}
@@ -971,7 +971,7 @@ input{font:inherit;color:inherit;background:none;border:none}
         </div>
       </div>
       <div class="composerGhost" id="composerGhost" hidden></div>
-      <section class="hearth cold" id="hearth" aria-label="voice hearth">
+      <section class="hearth cold" id="hearth" aria-label="the call">
         <div class="vpGrab"><i></i></div>
         <div class="vpTag">
           <div class="vpName" id="vpName">hearth</div>
@@ -979,7 +979,7 @@ input{font:inherit;color:inherit;background:none;border:none}
         </div>
         <div class="hearthPane">
           <div class="hearthGlow"></div>
-          <div class="hearthLabel" id="hearthLabel">the hearth</div>
+          <div class="hearthLabel" id="hearthLabel">The Hearth</div>
           <div class="vStage" id="vStage" hidden></div>
           <div class="vPick" id="vPick" hidden></div>
           <div class="hRing" id="hRing"></div>
@@ -1034,7 +1034,7 @@ input{font:inherit;color:inherit;background:none;border:none}
         <svg width="13" height="13" viewBox="0 0 34 34" fill="currentColor"><rect x="12.5" y="4" width="9" height="16" rx="4.5"/><path d="M8 15v1.5a9 9 0 0 0 18 0V15h-2.4v1.5a6.6 6.6 0 0 1-13.2 0V15z"/><rect x="15.8" y="26" width="2.4" height="4" rx="1"/><rect x="11" y="29.4" width="12" height="2.2" rx="1.1"/></svg>
         <span id="mutePillLabel">live</span>
       </button>
-      <button class="jump" id="jumpChip" hidden><span class="down">&darr;</span> back to the fire</button>
+      <button class="jump" id="jumpChip" hidden><span class="down">&darr;</span> back to the call</button>
     </div>
   </div>
 </div>
@@ -1068,8 +1068,8 @@ input{font:inherit;color:inherit;background:none;border:none}
 
     <div class="sect">
       <div class="lbl">notifications</div>
-      <div class="secNote" id="aoNotifyNote">Be told when somebody says something or comes to the
-        fire while you're looking elsewhere.</div>
+      <div class="secNote" id="aoNotifyNote">Be told when somebody says something or joins the
+        call while you're looking elsewhere.</div>
       <button class="pillBtn" id="aoNotifyBtn">turn on notifications</button>
     </div>
 
@@ -1114,7 +1114,7 @@ input{font:inherit;color:inherit;background:none;border:none}
 
     <div class="sect">
       <div class="lbl">relays</div>
-      <div class="secNote">Every relay this device has reached for this room. Tap one to switch to it.</div>
+      <div class="secNote">Every relay this device has reached for this group. Tap one to switch to it.</div>
       <div class="relayList" id="aoRelays"></div>
     </div>
 
@@ -1178,7 +1178,7 @@ input{font:inherit;color:inherit;background:none;border:none}
     </div>
     <p class="npFail" id="loginFail" hidden></p>
     <div class="lgLast">
-      <p class="lgNote">No other device and no invite link? Type the address of the room you're
+      <p class="lgNote">No other device and no invite link? Type the address of the group you're
         joining, and come in as somebody new.</p>
       <div class="relayRow">
         <input id="loginRelayInput" type="text" autocomplete="off"
