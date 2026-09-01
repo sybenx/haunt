@@ -2734,7 +2734,9 @@ function watchedPubkey() {
    the voice view still has it. */
 function renderVideo() {
   const who = watchedPubkey();
-  const away = ui.mode !== MODE_VOICE;
+  // Nothing is ever scrolled away from when both are on screen, so
+  // the corner has nothing to be the answer to.
+  const away = !wide && ui.mode !== MODE_VOICE;
   const inCorner = !!who && away && !call.pipPutAway;
   const inWindow = !!who && !away;
 
@@ -2772,7 +2774,7 @@ function renderPicker() {
   const live = liveStreams();
   const watching = watchedPubkey();
   vPickEl.innerHTML = "";
-  const show = live.length > 1 && ui.mode === MODE_VOICE;
+  const show = live.length > 1 && (wide || ui.mode === MODE_VOICE);
   xShow(vPickEl, show);
   if (!show) return;
   for (const pubkey of live) {
@@ -3195,6 +3197,38 @@ const ui = {
 
 const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+/* ---------- the same design with the scarcity taken out ----------
+
+   The three modes exist because a phone cannot show the conversation
+   and the fire at once, so one of them has to be somewhere else and
+   getting between them is a gesture. Given enough room that problem
+   is not there, and neither is anything that answers it: no detent,
+   no scroll-driven modes, no floating way back to the bottom, no
+   floating mute, and no corner picture, because nothing is ever
+   scrolled away from.
+
+   It is the same fire in a different container. The hearth element
+   moves out of the conversation's scroll and stands beside it, and
+   everything inside it is what it always was.
+
+   Where the line falls is a measurement rather than a kind of
+   machine. The fire needs its microphone at a hundred and ninety
+   across with a control either side at sixty-eight and air between
+   them, which with the hearth's own padding comes to about three
+   hundred and ninety. A conversation wants forty characters or so on
+   a line, which with an avatar and the padding either side of it
+   comes to about three hundred and sixty. That is seven hundred and
+   fifty, so the layout arrives at seven hundred and sixty.
+
+   Height counts too, and it is what keeps a phone lying on its side
+   out of this. Such a phone has the width and nothing like the
+   height: the fire needs a pane worth watching, a row of faces, and
+   the microphone under them, which is a little over five hundred. So
+   both dimensions are asked, and a landscape phone is answered by the
+   height rather than by being recognised as a phone. */
+const WIDE = matchMedia("(min-width: 760px) and (min-height: 540px)");
+let wide = false;
+
 // The hearth's natural height can only be read while no inline height
 // overrides it; cache it whenever that is true, because the expanded
 // state needs it as the other end of the animation.
@@ -3238,6 +3272,12 @@ function tweenHearthTo(target, done) {
 
 function layout() {
   ui.H = mainEl.clientHeight;
+  if (wide) {
+    // The fire is a column with its own height and nothing drives it.
+    if (composerState === "docked") placeComposer(slotRect(), 0);
+    else if (composerState === "lifted") rideKeyboard();
+    return;
+  }
   measureCompact();
   if (!ui.dragging && tweenId === null && ui.mode === MODE_VOICE) setHearthHeight(ui.H);
   // An out-of-flow composer is positioned against measured rects, so a
@@ -3246,7 +3286,38 @@ function layout() {
   else if (composerState === "lifted") rideKeyboard();
 }
 
+/* Moving between the two arrangements, which is the same elements in
+   a different container and nothing else. Called once at startup and
+   again whenever a window crosses the width, so a desktop window
+   dragged narrow becomes the phone layout and back again. */
+function applyWidth() {
+  wide = WIDE.matches;
+  stageEl.classList.toggle("wide", wide);
+  if (wide) {
+    // Out of the conversation's scroll and alongside it. The element
+    // is moved, not copied: everything inside it, including the seats
+    // and their listeners, is what it was.
+    if (hearthEl.parentNode !== mainEl) mainEl.appendChild(hearthEl);
+    hearthEl.style.height = ""; // the column has its own height
+    hearthEl.classList.add("expanded");
+    stageEl.classList.remove("mode1"); // the composer is not the pill here
+    ui.mode = MODE_VOICE; // the fire is showing, which is what that means
+    cancelAnimationFrame(tweenId);
+    tweenId = null;
+  } else if (hearthEl.parentNode !== scrollEl) {
+    scrollEl.appendChild(hearthEl);
+  }
+  updateComposerState(false);
+  updateFloaters();
+  renderVideo();
+  layout();
+  if (!wide) setMode(MODE_VOICE, false);
+}
+
+WIDE.addEventListener("change", applyWidth);
+
 function setMode(mode, animate = true) {
+  if (wide) return; // there is only one arrangement, and it is showing
   const wasVoice = ui.mode === MODE_VOICE;
   ui.mode = mode;
   const isVoice = mode === MODE_VOICE;
@@ -3348,7 +3419,9 @@ if (window.visualViewport) {
 }
 
 function updateComposerState(animate = true) {
-  const want = ui.kbFocus ? "lifted" : ui.mode === MODE_VOICE ? "docked" : "flow";
+  // Docked is the composer as the pill in the top bar, which is where
+  // it goes when the conversation is off screen. It never is here.
+  const want = ui.kbFocus ? "lifted" : (wide || ui.mode !== MODE_VOICE) ? "flow" : "docked";
   if (want === composerState) return;
   clearTimeout(composerTimer);
   const from = composerEl.getBoundingClientRect();
@@ -3389,7 +3462,7 @@ function updateComposerState(animate = true) {
 
 /* ---------- the floating controls over the conversation ---------- */
 function updateFloaters() {
-  const away = ui.mode === MODE_CHAT; // scrolled away from the bottom
+  const away = !wide && ui.mode === MODE_CHAT; // scrolled away from the bottom
   // Neither floater shows under the keyboard: the lifted composer
   // occupies the same corner of the screen.
   mutePillEl.hidden = !(call.joined && away && !ui.kbFocus);
@@ -3410,7 +3483,7 @@ let drag = null;
 let justDragged = false;
 
 hearthEl.addEventListener("pointerdown", (e) => {
-  if (ui.mode !== MODE_VOICE || e.button > 0) return;
+  if (wide || ui.mode !== MODE_VOICE || e.button > 0) return;
   // Never from a control. A finger on a small button rolls a few
   // pixels on the way up, which was enough to start a drag, and once
   // a drag captures the pointer the click is delivered to whatever
@@ -3479,7 +3552,7 @@ scrollEl.addEventListener("click", (e) => {
 let pull = null;
 
 scrollEl.addEventListener("touchstart", (e) => {
-  if (ui.mode === MODE_VOICE || ui.kbFocus) return;
+  if (wide || ui.mode === MODE_VOICE || ui.kbFocus) return;
   if (distFromBottom() >= 2) return; // not at rest at the bottom — this touch only scrolls
   pull = { y0: e.touches[0].clientY, t0: performance.now(), engaged: false };
 }, { passive: true });
@@ -3534,6 +3607,7 @@ let bottomAcc = 0;
 let bottomTimer = null;
 let lastWheelAt = 0; // when the previous wheel event arrived, wherever it scrolled
 scrollEl.addEventListener("wheel", (e) => {
+  if (wide) return; // the wheel has only the conversation to scroll
   if (ui.mode === MODE_VOICE) {
     e.preventDefault();
     wheelAcc += e.deltaY;
@@ -3569,7 +3643,7 @@ scrollEl.addEventListener("wheel", (e) => {
 
 /* ---------- modes 2 and 3: ordinary scrolling, with hysteresis ---------- */
 scrollEl.addEventListener("scroll", () => {
-  if (ui.dragging || ui.mode === MODE_VOICE) return;
+  if (wide || ui.dragging || ui.mode === MODE_VOICE) return;
   const dist = distFromBottom();
   if (ui.mode !== MODE_CHAT && dist > chatLeaveThreshold()) setMode(MODE_CHAT);
   else if (ui.mode === MODE_CHAT && dist < CHAT_ENTER) setMode(MODE_SPLIT);
@@ -3842,7 +3916,9 @@ function notifyWanted() {
 // back through history. In none of those is a message on screen.
 function notLooking() {
   if (document.visibilityState !== "visible") return true;
-  if (ui.mode === MODE_VOICE) return true;
+  // The voice screen covers the conversation on a phone, so being on
+  // it is being away from what was said. Beside it, it is not.
+  if (!wide && ui.mode === MODE_VOICE) return true;
   return distFromBottom() >= 80;
 }
 
@@ -5346,6 +5422,7 @@ function start(relayUrl) {
   watchForUpdates();
 
   layout();
+  applyWidth(); // which arrangement there is room for
   setMode(MODE_VOICE, false); // the room's face is the fire
   new ResizeObserver(layout).observe(mainEl);
 

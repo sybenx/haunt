@@ -816,6 +816,58 @@ input{font:inherit;color:inherit;background:none;border:none}
 .xferItem .xferWhen{color:var(--faint);white-space:nowrap}
 .xferItem .xferCode{margin-left:auto;white-space:nowrap}
 
+/* ============================================================
+   room for both
+
+   Not a second design: the same elements, with the fire lifted out of
+   the conversation's scroll to stand beside it. Everything here is a
+   container and a few sizes. Nothing inside the fire or inside a
+   message knows this arrangement exists, which is what keeps one
+   change from having to be made twice.
+
+   Both dimensions are asked, because width alone would hand this to a
+   phone lying on its side, which has the width and nowhere near the
+   height. See app.js for how the two numbers were arrived at.
+   ============================================================ */
+@media (min-width: 760px) and (min-height: 540px) {
+  /* The phone-first cap is what keeps one column a readable width on
+     a desktop. Two columns need it lifted, and then capped again so
+     that a very large monitor gives the conversation a line somebody
+     can follow rather than one that runs the width of the glass. */
+  .stage{max-width:1200px}
+  .main{
+    display:grid;
+    /* The conversation takes what is left; the fire takes what it
+       needs and no more, so a very wide window gives the extra to the
+       words rather than to an enormous microphone. */
+    grid-template-columns:minmax(0,1fr) clamp(360px,32vw,420px);
+  }
+  /* The conversation scrolls on its own again. On a phone this is
+     pinned while the voice screen covers it, which is a rule about a
+     screen that is covering something. */
+  .stage .scroll{overflow-y:auto;height:100%}
+  .composer{padding:12px 14px 14px}
+
+  .hearth{
+    height:100%;min-height:0;margin-top:0;
+    border-left:1px solid var(--line);
+    justify-content:flex-start;
+  }
+  /* The handle is something to pull, and there is nothing to pull it
+     into. The fire's own name and connection line go too: the top bar
+     carries both, and beside it they were the room's name written
+     twice on one screen. */
+  .stage.wide .hearth.expanded .vpGrab,
+  .stage.wide .hearth.expanded .vpTag{display:none}
+  .stage.wide .hearth.expanded{padding-top:14px}
+  /* Sized to the column rather than to the window, which is a great
+     deal wider than the column. */
+  .hearth.expanded .mic{width:190px;height:190px}
+  .hearth.expanded .callBtn{width:60px;height:60px}
+  .hearth.expanded .hAv{width:56px;height:56px}
+  .hearth.expanded .hearthPane{margin:8px 0 0}
+}
+
 @keyframes pulse{0%{transform:scale(.85);opacity:.9}70%{transform:scale(1.18);opacity:0}100%{transform:scale(1.18);opacity:0}}
 @keyframes flicker{0%,100%{opacity:.95;transform:translateX(-50%) scale(1)}40%{opacity:.75;transform:translateX(-50%) scale(.97)}70%{opacity:1;transform:translateX(-50%) scale(1.02)}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}

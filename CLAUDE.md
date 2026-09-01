@@ -157,9 +157,17 @@ more bits carrying no more detail.
 
 ## The interface
 
-Hearth is designed for a phone first. A desktop version exists as a separate product: a
+Hearth is designed for a phone first. A window with room in it is not a second design but
+the same one with the scarcity taken out: the fire on one side, the conversation on the
+other, both always there. The three modes below exist because a phone cannot show both at
+once, so where there is room they are gone, and so is everything that answered for them.
+Which of the two arrangements a screen gets is decided by measuring what fits, in both
+directions, rather than by asking what kind of machine it is: a phone lying on its side
+has the width and nowhere near the height, and is answered by the height.
+
+A desktop version exists as a separate product, and that is a different thing again: a
 game overlay with independent floating windows for voice and for each conversation,
-reached by keyboard shortcut. It is not this.
+reached by keyboard shortcut. It is not this, and a wide browser window is not it.
 
 The screen is one vertical arrangement with the fire at the bottom of it, and where the
 scroll sits is the whole of what is showing. Opening Hearth lands at the hearth itself,
