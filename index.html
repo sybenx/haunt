@@ -406,6 +406,18 @@ input{font:inherit;color:inherit;background:none;border:none}
 .callBtns{
   grid-column:1;justify-self:end;margin-right:14px;
   display:flex;flex-direction:column;gap:10px;
+  /* Sat against the bottom of the row rather than centred on it, so
+     that the lower of the two lines up with leaving on the far side
+     and the three of them read as one row of controls under the
+     microphone rather than three things at three heights. */
+  align-self:end;
+}
+/* A button with its name under it. All three of these are the same
+   shape: the glyph alone is too small to be sure of, and naming them
+   costs one line each. */
+.callSlot{display:flex;flex-direction:column;align-items:center;gap:5px}
+.slotLabel{
+  font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
 }
 .micRow .mic{grid-column:2}
 .hearth:not(.youIn):not(.youMuted) .callBtns{display:none}
@@ -434,7 +446,7 @@ input{font:inherit;color:inherit;background:none;border:none}
    leaving is not a thing to guess at. */
 .leaveSlot{
   grid-column:3;justify-self:start;margin-left:14px;
-  display:flex;flex-direction:column;align-items:center;gap:5px;
+  align-self:end; /* level with the camera on the other side */
 }
 .hearth:not(.youIn):not(.youMuted) .leaveSlot{display:none}
 .callBtn.leaveNow{
@@ -445,9 +457,7 @@ input{font:inherit;color:inherit;background:none;border:none}
   background:radial-gradient(circle at 35% 26%,#ff8f7a,#c33f2c 60%);
   color:#2f0d08;
 }
-.leaveLabel{
-  font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#b3705f;
-}
+.leaveSlot .slotLabel{color:#b3705f}
 /* And a glyph, because a ring says that something is happening and
    this says what: a screen or a face. It also survives a screenshot,
    which the turning does not. */
@@ -833,23 +843,29 @@ input{font:inherit;color:inherit;background:none;border:none}
         </div>
         <div class="micRow">
           <div class="callBtns">
-            <button class="callBtn" id="shareScreenBtn" aria-label="share your screen">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><line x1="8" y1="20.5" x2="16" y2="20.5"/><line x1="12" y1="17" x2="12" y2="20.5"/></svg>
-            </button>
-            <button class="callBtn" id="shareCamBtn" aria-label="turn your camera on">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="13" height="12" rx="2.5"/><path d="M15.5 10.5l5-3v9l-5-3z"/></svg>
-            </button>
+            <div class="callSlot">
+              <button class="callBtn" id="shareScreenBtn" aria-label="share your screen">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><line x1="8" y1="20.5" x2="16" y2="20.5"/><line x1="12" y1="17" x2="12" y2="20.5"/></svg>
+              </button>
+              <span class="slotLabel">screen</span>
+            </div>
+            <div class="callSlot">
+              <button class="callBtn" id="shareCamBtn" aria-label="turn your camera on">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="13" height="12" rx="2.5"/><path d="M15.5 10.5l5-3v9l-5-3z"/></svg>
+              </button>
+              <span class="slotLabel">camera</span>
+            </div>
           </div>
         <button class="mic" id="micBtn" aria-label="microphone">
           <svg class="micGlyph" viewBox="0 0 34 34" fill="currentColor"><rect x="12.5" y="4" width="9" height="16" rx="4.5"/><path d="M8 15v1.5a9 9 0 0 0 18 0V15h-2.4v1.5a6.6 6.6 0 0 1-13.2 0V15z"/><rect x="15.8" y="26" width="2.4" height="4" rx="1"/><rect x="11" y="29.4" width="12" height="2.2" rx="1.1"/></svg>
           <span class="micLabel" id="micLabel">join</span>
           <span class="micSlash"><svg width="46" height="46" viewBox="0 0 46 46"><line x1="10" y1="36" x2="36" y2="10" stroke="#c9a074" stroke-width="3" stroke-linecap="round"/></svg></span>
         </button>
-          <div class="leaveSlot">
+          <div class="callSlot leaveSlot">
             <button class="callBtn leaveNow" id="leaveBtn" aria-label="leave the call">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 3.5H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h8.5"/><path d="M17 8.5l4 3.5-4 3.5"/><line x1="21" y1="12" x2="10.5" y2="12"/></svg>
             </button>
-            <span class="leaveLabel">leave</span>
+            <span class="slotLabel">leave</span>
           </div>
         </div>
         <div class="micHint" id="micHint"></div>
