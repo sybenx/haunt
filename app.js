@@ -2904,65 +2904,121 @@ micBtn.addEventListener("click", () => {
 leaveBtn.addEventListener("click", leaveCall);
 
 /* ---------- rendering: the voice screen and the hearth in the scroll ---------- */
+/* One seat per person, kept and updated rather than thrown away and
+   made again.
+
+   renderHearth runs whenever anybody starts or stops talking, which
+   with a live microphone in the room is several times a second. The
+   first version of this emptied the container and built every seat
+   afresh each time, and a tap needs the element it began on to still
+   be there when the finger comes up: the button was being destroyed
+   between the touch starting and ending, so tapping somebody who was
+   streaming did nothing at all, every time, for as long as anybody
+   was speaking. Nothing about it looked wrong in a test that clicked
+   the button from a script, because a scripted click happens in one
+   go and cannot land in that gap. */
 function buildRing(container, pubkeys) {
-  container.innerHTML = "";
   if (pubkeys.length === 0) {
-    container.innerHTML = '<div style="font-size:12px;color:var(--faint);align-self:center">no one’s by the fire</div>';
+    if (!container.firstElementChild || !container.firstElementChild.classList.contains("ringEmpty")) {
+      container.innerHTML = '<div class="ringEmpty" style="font-size:12px;color:var(--faint);align-self:center">no one\u2019s by the fire</div>';
+    }
     return;
   }
+
+  const wanted = new Set(pubkeys);
+  const seats = new Map();
+  for (const el of [...container.children]) {
+    const key = el.dataset ? el.dataset.pubkey : null;
+    if (!key || !wanted.has(key)) el.remove();
+    else seats.set(key, el);
+  }
+
   for (const pubkey of pubkeys) {
     const isMe = pubkey === identity.pubkey;
     const muted = isMe ? call.muted : (call.presence.get(pubkey) || {}).muted;
-    const b = document.createElement("button");
-    b.className = "hAv" + (call.speaking.has(pubkey) ? " speaking" : "");
-    const av = document.createElement("div");
-    av.className = "av";
-    av.style.background = colorFor(pubkey);
-    av.style.borderRadius = "50%";
-    av.style.width = "100%";
-    av.style.height = "100%";
-    av.textContent = initials(pubkey);
-    b.appendChild(av);
-    if (muted) {
-      const badge = document.createElement("span");
-      badge.className = "badge mutedB";
-      badge.innerHTML = '<svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"><rect x="4.4" y="1" width="3.2" height="6" rx="1.6"/><path d="M2.5 5.4v.6a3.5 3.5 0 0 0 7 0v-.6h-1v.6a2.5 2.5 0 0 1-5 0v-.6z"/><line x1="1.5" y1="10.5" x2="10.5" y2="1.5" stroke="#d98a56" stroke-width="1.4" stroke-linecap="round"/></svg>';
-      b.appendChild(badge);
-    }
-    // A red ring on whoever is showing something, which is the one
-    // colour here that is not the fire and so reads as a different
-    // kind of thing from talking.
     const sharing = isMe ? call.shareKind : (call.presence.get(pubkey) || {}).sharing;
-    if (sharing) {
-      b.classList.add("sharing");
-      // Beside the ring rather than instead of it: the ring says that
-      // something is happening and this says what, and unlike the
-      // ring's turning it survives being looked at in a still.
-      const badge = document.createElement("span");
-      badge.className = "badge sharingB";
-      badge.innerHTML = sharing === "screen"
+
+    let b = seats.get(pubkey);
+    if (!b) {
+      // The one place a seat is made, and the listener that comes
+      // with it lives exactly as long as the seat does.
+      b = document.createElement("button");
+      b.className = "hAv";
+      b.dataset.pubkey = pubkey;
+      const av = document.createElement("div");
+      av.className = "av";
+      av.style.background = colorFor(pubkey);
+      av.style.borderRadius = "50%";
+      av.style.width = "100%";
+      av.style.height = "100%";
+      av.dataset.avFor = pubkey;
+      const name = document.createElement("span");
+      name.className = "hName";
+      name.dataset.nameFor = isMe ? "" : pubkey;
+      b.append(av, name);
+      b.addEventListener("click", () => watchSeat(pubkey));
+      seats.set(pubkey, b);
+    }
+
+    b.querySelector(".av").textContent = initials(pubkey);
+    b.querySelector(".hName").textContent = isMe ? "you" : displayName(pubkey);
+    b.classList.toggle("speaking", call.speaking.has(pubkey));
+    b.classList.toggle("sharing", !!sharing);
+
+    setBadge(b, "mutedB", muted
+      ? '<svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"><rect x="4.4" y="1" width="3.2" height="6" rx="1.6"/><path d="M2.5 5.4v.6a3.5 3.5 0 0 0 7 0v-.6h-1v.6a2.5 2.5 0 0 1-5 0v-.6z"/><line x1="1.5" y1="10.5" x2="10.5" y2="1.5" stroke="#d98a56" stroke-width="1.4" stroke-linecap="round"/></svg>'
+      : null);
+    // Beside the ring rather than instead of it: the ring says that
+    // something is happening and this says what, and unlike the
+    // ring's turning it survives being looked at in a still.
+    setBadge(b, "sharingB", sharing
+      ? (sharing === "screen"
         ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="13" rx="2"/><line x1="9" y1="20.5" x2="15" y2="20.5"/></svg>'
-        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6.5" width="12" height="11" rx="2.5"/><path d="M14.5 10.5l6-3.5v10l-6-3.5z"/></svg>';
-      b.appendChild(badge);
-    }
-    // And it is the way in to watching them. Somebody else's picture
-    // opens when you tap them, which is where a person looks first
-    // and where there was nothing at all before.
-    if (sharing && !isMe) {
-      b.addEventListener("click", () => {
-        call.watching = pubkey;
-        call.pipPutAway = false;
-        if (ui.mode !== MODE_VOICE) scrollToBottom(true);
-        renderVideo();
-        renderPicker();
-      });
-    }
-    const name = document.createElement("span");
-    name.className = "hName";
-    name.textContent = isMe ? "you" : displayName(pubkey);
-    b.appendChild(name);
-    container.appendChild(b);
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6.5" width="12" height="11" rx="2.5"/><path d="M14.5 10.5l6-3.5v10l-6-3.5z"/></svg>')
+      : null);
+
+    container.appendChild(b); // moves rather than replaces, so a tap survives it
   }
+}
+
+// A badge is added, changed or taken away without disturbing the
+// button around it.
+function setBadge(button, kind, html) {
+  let badge = button.querySelector("." + kind);
+  if (!html) {
+    if (badge) badge.remove();
+    return;
+  }
+  if (!badge) {
+    badge = document.createElement("span");
+    badge.className = "badge " + kind;
+    button.appendChild(badge);
+  }
+  if (badge.innerHTML !== html) badge.innerHTML = html;
+}
+
+// Tapping somebody at the fire. Only a person with a picture has
+// anything to show, and this is the way in to it: it is where a
+// person looks first, and it says so when there is nothing there yet
+// rather than appearing to be broken.
+function watchSeat(pubkey) {
+  if (pubkey === identity.pubkey) return;
+  const seat = call.presence.get(pubkey) || {};
+  if (!seat.sharing) return;
+  if (!streamLive(pubkey)) {
+    showBanner(displayName(pubkey) + "'s picture hasn't reached this device yet. " +
+      "Hearth is still trying.");
+    // Their picture is not arriving over a connection that is
+    // otherwise fine, which a fresh one usually settles.
+    teardownPeer(pubkey);
+    maybeConnectToPeer(pubkey);
+    return;
+  }
+  call.watching = pubkey;
+  call.pipPutAway = false;
+  if (ui.mode !== MODE_VOICE) scrollToBottom(true);
+  renderVideo();
+  renderPicker();
 }
 
 // One hearth, rendered once, whatever its current size.

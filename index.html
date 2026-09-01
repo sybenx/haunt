@@ -427,8 +427,27 @@ input{font:inherit;color:inherit;background:none;border:none}
   box-shadow:0 0 0 1px rgba(255,120,100,.35),0 0 26px rgba(255,90,70,.35);
 }
 
-.hActions{display:flex;justify-content:center;flex-wrap:wrap;gap:6px}
-.hearth:not(.youIn):not(.youMuted) .hActions{display:none}
+/* Leaving is the third thing you do to a call, so it sits in the
+   third column, opposite the two that start a picture. Red, because
+   it is the one control here that ends something, and labelled
+   underneath rather than inside because the glyph is small and
+   leaving is not a thing to guess at. */
+.leaveSlot{
+  grid-column:3;justify-self:start;margin-left:14px;
+  display:flex;flex-direction:column;align-items:center;gap:5px;
+}
+.hearth:not(.youIn):not(.youMuted) .leaveSlot{display:none}
+.callBtn.leaveNow{
+  background:radial-gradient(circle at 35% 28%,#4a2622,#28110e 72%);
+  border-color:#5a2a24;color:#e0806f;
+}
+.callBtn.leaveNow:active{
+  background:radial-gradient(circle at 35% 26%,#ff8f7a,#c33f2c 60%);
+  color:#2f0d08;
+}
+.leaveLabel{
+  font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#b3705f;
+}
 /* And a glyph, because a ring says that something is happening and
    this says what: a screen or a face. It also survives a screenshot,
    which the turning does not. */
@@ -496,12 +515,7 @@ input{font:inherit;color:inherit;background:none;border:none}
 .micSlash{position:absolute;inset:0;display:none;align-items:center;justify-content:center;pointer-events:none}
 .hearth.youMuted .micSlash{display:flex}
 .micHint{margin-top:12px;font-size:11.5px;color:var(--faint);letter-spacing:.02em;text-align:center}
-.leaveBtn{
-  margin-top:10px;font-size:11px;color:var(--faint);letter-spacing:.08em;text-transform:uppercase;
-  padding:6px 12px;border-radius:10px;display:none;
-}
-.hearth.youIn .leaveBtn,.hearth.youMuted .leaveBtn{display:inline-block}
-.leaveBtn:active{background:var(--raise)}
+
 
 /* ---------- the account overlay: everything that is not the conversation ---------- */
 .accountOverlay{
@@ -831,11 +845,14 @@ input{font:inherit;color:inherit;background:none;border:none}
           <span class="micLabel" id="micLabel">join</span>
           <span class="micSlash"><svg width="46" height="46" viewBox="0 0 46 46"><line x1="10" y1="36" x2="36" y2="10" stroke="#c9a074" stroke-width="3" stroke-linecap="round"/></svg></span>
         </button>
+          <div class="leaveSlot">
+            <button class="callBtn leaveNow" id="leaveBtn" aria-label="leave the call">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 3.5H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h8.5"/><path d="M17 8.5l4 3.5-4 3.5"/><line x1="21" y1="12" x2="10.5" y2="12"/></svg>
+            </button>
+            <span class="leaveLabel">leave</span>
+          </div>
         </div>
         <div class="micHint" id="micHint"></div>
-        <div class="hActions">
-          <button class="leaveBtn" id="leaveBtn">leave</button>
-        </div>
       </section>
     </div>
 
