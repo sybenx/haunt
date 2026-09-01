@@ -107,6 +107,10 @@ const micHintEl = document.getElementById("micHint");
 const leaveBtn = document.getElementById("leaveBtn");
 const shareScreenBtn = document.getElementById("shareScreenBtn");
 const shareCamBtn = document.getElementById("shareCamBtn");
+const sharePickEl = document.getElementById("sharePick");
+const shareSharpBtn = document.getElementById("shareSharpBtn");
+const shareSmoothBtn = document.getElementById("shareSmoothBtn");
+const shareNeverBtn = document.getElementById("shareNeverBtn");
 const vStageEl = document.getElementById("vStage");
 const vPickEl = document.getElementById("vPick");
 const liveVideoEl = document.getElementById("liveVideo");
@@ -1842,7 +1846,8 @@ const call = {
   localStream: null,
   // What we are sending, if anything, and what everyone else is.
   shareStream: null,
-  shareKind: null,          // "screen" | "camera"
+  shareKind: null,          // "screen" | "camera", which is what others are told
+  sharePreset: null,        // which row of SHARE_PRESETS we are sending under
   streams: new Map(),       // pubkey -> { stream, live }
   watching: null,           // whose stream fills the window; null picks for itself
   pipPutAway: false,        // the corner was dismissed, which is not leaving the call
@@ -1851,39 +1856,78 @@ const call = {
 /* ---------- what a shared picture costs, and why these numbers ----------
 
    This is a mesh: one copy of the picture goes up the sharer's
-   connection for every person watching. Six watchers is six copies,
-   and there is no server anywhere to fan one copy out into six. That
-   is the whole reason for the numbers below being modest, and for
-   hearth saying so when they stop being enough rather than quietly
-   finding a way round it.
+   connection for every person watching, and there is no server
+   anywhere to fan one copy out into six. That is why the ceilings
+   below are modest and why hearth says so when they stop being
+   enough rather than quietly finding a way round it.
 
-   A screen is mostly still and mostly text, so it goes at 720p and
-   few frames. Below that width ordinary interface text stops being
-   readable, which is the only thing a shared screen is for; above it
-   the extra pixels cost bitrate that nobody looking at a phone can
-   see. Frames are what gets given up under pressure, because a
-   readable still beats a smooth blur when what is on screen is words.
+   Two ways to share a screen, because a screen is two different
+   things. Somebody showing code or a document wants every letter
+   legible and does not care that it arrives eight times a second, so
+   that one hints detail and gives up frames rather than pixels under
+   pressure: a readable still beats a smooth blur when the content is
+   words. Somebody showing a game wants the opposite, because the
+   motion is the content and a sharp still of it is worth nothing, so
+   that one hints motion, asks for thirty frames, and gives up
+   resolution instead.
 
-   A face is the opposite: small, moving, and worth nothing frozen. It
-   goes at 360p and full motion, at a third of the bitrate.
+   A camera is the motion trade again at a smaller size, since a face
+   is small, moving, and worth nothing frozen.
 
-   Eight hundred kilobits times six watchers is a little under five
-   megabits up, which a decent home connection manages and a poor one
-   does not. What happens then is that it degrades and hearth says so. */
-const SHARE_LIMITS = {
-  screen: {
-    constraints: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 8, max: 15 } },
+   The two screen ceilings differ only a little, and deliberately. The
+   scarce thing is the sharer's upstream connection, and that does not
+   grow because the content started moving; what changes is how the
+   bits get spent, which is the hints above. Smooth gets a quarter
+   more because thirty frames of motion at eight hundred kilobits is
+   mush, and no more than that because six watchers of it is already
+   six megabits up. */
+const SHARE_PRESETS = {
+  sharp: {
+    kind: "screen",
+    constraints: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 8, max: 15 } },
     hint: "detail",
     degradation: "maintain-resolution",
     maxBitrate: 800000,
+    reference: 1080,
+  },
+  smooth: {
+    kind: "screen",
+    constraints: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+    hint: "motion",
+    degradation: "balanced",
+    maxBitrate: 1000000,
+    reference: 1080,
   },
   camera: {
+    kind: "camera",
     constraints: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24 } },
     hint: "motion",
     degradation: "balanced",
     maxBitrate: 300000,
+    reference: 360,
   },
 };
+
+/* ---------- how big a picture each watcher is actually sent ----------
+
+   A mesh gives the sharer a separate connection to every watcher, so
+   there is no single resolution for them all to compromise on. Each
+   watcher says what it can put on screen and the sharer encodes to
+   that for that one connection, which is a change to the sender's own
+   parameters and touches nothing else: no renegotiation, and nobody's
+   audio so much as stutters.
+
+   A phone in portrait cannot show 720 lines and should not be sent
+   them; the same phone turned on its side can, and turning it is a
+   thing that happens in the middle of a call, which is why this is a
+   message the watcher can send again rather than something agreed
+   once at the start.
+
+   The rungs are far enough apart that a few pixels of layout drift
+   never sets one off. */
+const VIEW_LADDER = [1080, 720, 540, 360, 270, 180];
+const DEFAULT_VIEW_HEIGHT = 720;
+
 let heartbeatTimer = null;
 let callWarnTimer = null;
 
@@ -2084,6 +2128,17 @@ async function handleSignal(event) {
   const entry = call.peers.get(event.pubkey);
   if (!entry) return; // an answer or candidate with no offer on our side — drop it
 
+  if (payload.type === "view") {
+    // What this one watcher can put on screen. Kept whether or not we
+    // are sharing, so that starting later already knows, and applied
+    // straight away when we are.
+    const height = Number(payload.height);
+    if (!VIEW_LADDER.includes(height)) return;
+    entry.viewHeight = height;
+    if (call.shareStream) applyEncoding(entry).catch(() => {});
+    return;
+  }
+
   if (payload.type === "answer") {
     await entry.pc.setRemoteDescription({ type: "answer", sdp: payload.sdp });
     entry.remoteSet = true;
@@ -2145,25 +2200,52 @@ async function sendShareTo(entry) {
   if (!track) return;
   try {
     await entry.videoSender.replaceTrack(track);
-    const limits = SHARE_LIMITS[call.shareKind];
-    const params = entry.videoSender.getParameters();
-    if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-    params.encodings[0].maxBitrate = limits.maxBitrate;
-    params.degradationPreference = limits.degradation;
-    await entry.videoSender.setParameters(params);
+    await applyEncoding(entry);
   } catch (err) {
     console.error("hearth: could not send video to a peer", err);
   }
 }
 
-async function startSharing(kind) {
+// One watcher's worth of encoder settings, applied to the sender that
+// is already sending to them. setParameters is not a negotiation: it
+// changes what this one connection carries, while it carries it, and
+// the audio alongside it never notices.
+async function applyEncoding(entry) {
+  if (!entry.videoSender || !call.shareStream) return;
+  const preset = SHARE_PRESETS[call.sharePreset];
+  if (!preset) return;
+  const track = call.shareStream.getVideoTracks()[0];
+  if (!track) return;
+
+  // What the capture actually contains is a ceiling. A laptop screen
+  // that is 900 lines tall does not become 1080 by being asked for
+  // one: the extra bits carry no extra detail, and the encoder spends
+  // them anyway.
+  const source = track.getSettings().height || preset.reference;
+  const asked = entry.viewHeight || DEFAULT_VIEW_HEIGHT;
+  const target = Math.min(asked, source);
+
+  const params = entry.videoSender.getParameters();
+  if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+  params.encodings[0].scaleResolutionDownBy = Math.max(1, source / target);
+  // The ceiling comes down with the picture. Bits go roughly as area,
+  // so a watcher taking half the height needs about a quarter of the
+  // rate, and the floor keeps a small picture from being starved.
+  const share = Math.min(1, Math.max(0.3, Math.pow(target / preset.reference, 2)));
+  params.encodings[0].maxBitrate = Math.round(preset.maxBitrate * share);
+  params.degradationPreference = preset.degradation;
+  await entry.videoSender.setParameters(params);
+}
+
+async function startSharing(presetName) {
   if (!call.joined) return;
-  const limits = SHARE_LIMITS[kind];
+  const preset = SHARE_PRESETS[presetName];
+  if (!preset) return;
   let stream;
   try {
-    stream = kind === "screen"
-      ? await navigator.mediaDevices.getDisplayMedia({ video: limits.constraints, audio: false })
-      : await navigator.mediaDevices.getUserMedia({ video: limits.constraints, audio: false });
+    stream = preset.kind === "screen"
+      ? await navigator.mediaDevices.getDisplayMedia({ video: preset.constraints, audio: false })
+      : await navigator.mediaDevices.getUserMedia({ video: preset.constraints, audio: false });
   } catch (err) {
     // A refusal at the browser's own prompt is somebody changing
     // their mind, and is not worth a banner.
@@ -2179,12 +2261,13 @@ async function startSharing(kind) {
   stopSharing({ quiet: true }); // one picture at a time, one video sender
   const track = stream.getVideoTracks()[0];
   // What the encoder should protect when it cannot have everything.
-  track.contentHint = limits.hint;
+  track.contentHint = preset.hint;
   // The browser's own stop-sharing control, which is the one most
   // people will reach for on a screen share.
   track.addEventListener("ended", () => stopSharing());
   call.shareStream = stream;
-  call.shareKind = kind;
+  call.shareKind = preset.kind;
+  call.sharePreset = presetName;
   for (const entry of call.peers.values()) sendShareTo(entry);
   publishPresence();
   watchShareQuality();
@@ -2200,6 +2283,7 @@ function stopSharing(opts) {
   for (const t of call.shareStream.getTracks()) t.stop();
   call.shareStream = null;
   call.shareKind = null;
+  call.sharePreset = null;
   clearInterval(shareStatsTimer);
   shareStatsTimer = null;
   if (opts && opts.quiet) return; // swapping one share for another
@@ -2249,6 +2333,67 @@ function watchShareQuality() {
   }, 5000);
 }
 
+/* ---------- the watcher's half: saying how big a picture to send ----------
+
+   Measured from the window the picture actually goes in, in the
+   device's own pixels, and snapped to a rung so that a few pixels of
+   layout drift never sets one off. Sent to everybody rather than only
+   to whoever is sharing right now, because it costs one small message
+   and it means a sharer starting later already knows.
+
+   The corner over the conversation is deliberately not what gets
+   measured. It is a fraction of the size, and a person who drops back
+   to the fire should find a full picture there rather than watch it
+   sharpen. */
+let viewHeightSent = 0;
+let viewResizeTimer = null;
+
+function viewableHeight() {
+  // Beyond three device pixels to the CSS pixel there is nothing left
+  // for an eye to gain, and phones that claim four would be asking
+  // for a picture nobody can see.
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const box = vStageEl.getBoundingClientRect();
+  let w = box.width;
+  let h = box.height;
+  if (!w || !h) {
+    // Not at the fire, so the window is not on screen to measure.
+    // This is the size it will have when they come back to it, near
+    // enough for choosing a rung.
+    w = Math.min(mainEl.clientWidth || window.innerWidth || 360, 560);
+    h = Math.max(140, Math.round((window.innerHeight || 640) * 0.34));
+  }
+  // A picture is fitted inside that box, so whichever of the two runs
+  // out first is what can be shown.
+  const lines = Math.min(h, (w * 9) / 16) * dpr;
+  for (const rung of VIEW_LADDER) {
+    if (lines >= rung) return rung;
+  }
+  return VIEW_LADDER[VIEW_LADDER.length - 1];
+}
+
+// Told to everyone, and only when it has actually changed. Turning a
+// phone on its side is the case this exists for: it changes what can
+// be shown, while somebody is watching, and the far end has no way of
+// seeing it happen.
+function reportViewHeight() {
+  if (!call.joined) return;
+  const height = viewableHeight();
+  if (height === viewHeightSent) return;
+  viewHeightSent = height;
+  for (const pubkey of call.peers.keys()) sendSignal(pubkey, { type: "view", height });
+}
+
+// Rotation and resize arrive as a flurry, and the useful moment is
+// the one after they stop.
+function viewChanged() {
+  clearTimeout(viewResizeTimer);
+  viewResizeTimer = setTimeout(reportViewHeight, 400);
+}
+
+window.addEventListener("resize", viewChanged);
+window.addEventListener("orientationchange", viewChanged);
+
 /* ---------- receiving ---------- */
 
 // A remote video track, kept along with the stream so that whether
@@ -2267,6 +2412,8 @@ function receiveVideoTrack(pubkey, stream, track) {
   }
   renderVideo();
   renderHearth();
+  // The window is on screen now, so what fits in it is worth saying.
+  viewChanged();
 }
 
 // Asked, never stored. Somebody is worth watching when they say they
@@ -2362,10 +2509,28 @@ pipXEl.addEventListener("click", (e) => {
 
 pipEl.addEventListener("click", () => scrollToBottom(true));
 
+// Sharing a screen asks one question first, because a screen of code
+// and a screen of a game want opposite things and nothing here can
+// tell which this is. Stopping asks nothing.
 shareScreenBtn.addEventListener("click", () => {
-  if (call.shareKind === "screen") stopSharing();
-  else startSharing("screen");
+  if (call.shareKind === "screen") {
+    stopSharing();
+    return;
+  }
+  xShow(sharePickEl, true);
 });
+
+shareSharpBtn.addEventListener("click", () => {
+  xShow(sharePickEl, false);
+  startSharing("sharp");
+});
+
+shareSmoothBtn.addEventListener("click", () => {
+  xShow(sharePickEl, false);
+  startSharing("smooth");
+});
+
+shareNeverBtn.addEventListener("click", () => xShow(sharePickEl, false));
 
 shareCamBtn.addEventListener("click", () => {
   if (call.shareKind === "camera") stopSharing();
@@ -2624,6 +2789,9 @@ function renderHearth() {
   shareCamBtn.hidden = !call.joined;
   shareScreenBtn.textContent = call.shareKind === "screen" ? "stop sharing your screen" : "share your screen";
   shareCamBtn.textContent = call.shareKind === "camera" ? "turn your camera off" : "turn your camera on";
+  // Only ever open while there is nothing being shared and somebody
+  // is at the fire to answer it.
+  if (call.shareKind || !call.joined) xShow(sharePickEl, false);
 
   updateFloaters();
   renderVideo();
@@ -2754,6 +2922,9 @@ function setMode(mode, animate = true) {
   // The window and the corner are the same element in two places, and
   // which place it belongs in is exactly what just changed.
   renderVideo();
+  // Arriving at the fire is the first chance to measure the window
+  // rather than estimate it.
+  if (isVoice) viewChanged();
 }
 
 function scrollToBottom(smooth) {

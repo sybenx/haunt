@@ -133,9 +133,19 @@ Somebody in the call can share their screen or turn on their camera. It fills th
 the fire occupies, and follows the person up into a corner of the conversation when they
 scroll away from the fire. Putting that corner away puts the picture away and nothing
 else: they are still in the call, still hearing everyone, and the fire still has the
-picture when they come back to it. A screen is sent at the resolution that keeps ordinary
-text readable and gives up frames rather than pixels under pressure, because a shared
-screen is nearly always words.
+picture when they come back to it.
+
+A screen is shared as one of two things, chosen when the sharing starts, because a screen
+of code and a screen of a game want opposite things. Sharp keeps every letter legible and
+gives up frames to do it; smooth keeps the motion and gives up detail. Nothing can work
+out which is wanted, so the person is asked, in two words.
+
+How large a picture each person is sent is that person's own to decide. A mesh gives the
+sharer a separate connection to every watcher, so there is no single resolution for them
+all to compromise on: each watcher measures the window it will actually be shown in and
+says so, and a phone turned on its side says so again. The sharer never sends more than
+the capture itself contains, because scaling a laptop screen up to a larger number sends
+more bits carrying no more detail.
 
 ## The interface
 

@@ -352,6 +352,17 @@ input{font:inherit;color:inherit;background:none;border:none}
 }
 .vPick button.on{border-color:rgba(255,158,90,.5);color:var(--ember)}
 .hActions{display:flex;justify-content:center;flex-wrap:wrap;gap:6px}
+/* The one thing worth asking before a screen goes out, asked once and
+   in two words. A screen of code and a screen of a game want opposite
+   things from the encoder and nothing can work out which this is. */
+.sharePick{margin-top:8px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.shareHint{font-size:11px;color:var(--faint)}
+.shareChoices{display:flex;gap:6px}
+.shareChoices button{
+  font-size:12px;padding:7px 14px;border-radius:999px;
+  background:var(--raise2);border:1px solid var(--line2);color:var(--ink);
+}
+.shareChoices button.quietPick{background:none;border-color:transparent;color:var(--faint)}
 .hearth:not(.youIn):not(.youMuted) .hActions{display:none}
 .hAv .badge.sharingB{background:var(--raise2);color:var(--ember)}
 
@@ -747,6 +758,14 @@ input{font:inherit;color:inherit;background:none;border:none}
           <button class="leaveBtn" id="shareScreenBtn" hidden>share your screen</button>
           <button class="leaveBtn" id="shareCamBtn" hidden>turn your camera on</button>
           <button class="leaveBtn" id="leaveBtn">leave</button>
+        </div>
+        <div class="sharePick" id="sharePick" hidden>
+          <div class="shareHint">sharp for words, smooth for anything moving</div>
+          <div class="shareChoices">
+            <button id="shareSharpBtn">sharp</button>
+            <button id="shareSmoothBtn">smooth</button>
+            <button id="shareNeverBtn" class="quietPick">never mind</button>
+          </div>
         </div>
       </section>
     </div>
