@@ -80,7 +80,6 @@ const xQrCanvas = document.getElementById("xQrCanvas");
 const xCamEl = document.getElementById("xCam");
 const xVideoEl = document.getElementById("xVideo");
 const xSasEl = document.getElementById("xSas");
-const xEmojiEl = document.getElementById("xEmoji");
 const xDigitsEl = document.getElementById("xDigits");
 const xListEl = document.getElementById("xList");
 const xMultiEl = document.getElementById("xMulti");
@@ -4313,9 +4312,9 @@ function renderTransfers() {
 
 /* ---------- the code, drawn and read ---------- */
 
-/* ---------- what the code points at ----------
+/* ---------- what the code points at (qrst §11.2a) ----------
 
-   Not the nostr+keyxfer URI on its own. A phone's own camera app,
+   Not the qrst URI on its own. A phone's own camera app,
    which is what somebody actually points at a screen, hands an
    unknown scheme to a web search rather than to an app, and no
    browser has registered that scheme because Hearth is a page rather
@@ -4325,7 +4324,10 @@ function renderTransfers() {
 
    In the fragment rather than the query, because a fragment is never
    sent to the server: the host this page is served from never sees a
-   burner key or a relay list in a request log.
+   burner key or a relay list in a request log. That is what keeps
+   the link from introducing anybody: the origin is the copy of
+   Hearth that drew the code, and it learns nothing from being asked
+   for the page.
 
    Whole rather than unpacked into the link's own parameters. The
    string the specification defines is the string its rules are
@@ -4333,7 +4335,7 @@ function renderTransfers() {
    other device, and a version this build does not know is still
    refused by the same line of code. */
 const PAIR_PARAM = "pair";
-const PAIR_SCHEME = "nostr+keyxfer://";
+const PAIR_SCHEME = "qrst://";
 
 // The inverse of pairingLink, and the only thing in Hearth that
 // decides what a device code looks like. Both readers go through it:
@@ -4633,9 +4635,9 @@ function watchTransport() {
 
    The code already encodes an ordinary link, so a pair of devices
    with no camera between them can move the same bytes by hand. This
-   is the substitution the specification describes for its typed
-   pairing code, where only the pairing step changes: the burners, the
-   commitment, the emoji both screens compare and the prompt that
+   is the substitution the specification describes in §12.1, where
+   only the pairing step changes: the burners, the commitment, the
+   code the two screens carry between them, and the prompt that
    releases the key are untouched by how the link got across.
 
    Safe for the reason a photographed code is safe. What travels is a
@@ -4644,11 +4646,10 @@ function watchTransport() {
 
    Said as pasting into the device in front of you, and never as
    sending. A code held up to a camera meant both devices were in the
-   same room and a link does not, and while the emoji comparison is
-   what actually settles whether the far end is the right device, a
-   flow that invites somebody to message a link to themselves leaves
-   that comparison holding everything up alone. People tap past
-   comparisons. */
+   same room and a link does not, and while the code is what actually
+   settles whether the far end is the right device, a flow that
+   invites somebody to message a link to themselves leaves that one
+   check holding everything up alone. People tap past checks. */
 function copyPairingLink() {
   if (!xfer || !xfer.uri) return;
   const link = pairingLink(xfer.uri).url;
@@ -4658,7 +4659,7 @@ function copyPairingLink() {
   };
   navigator.clipboard.writeText(link).then(() => {
     said("Paste it into your other device. It should be the one in front of you, because " +
-      "the emoji you compare next are what prove it's yours.");
+      "the code you check next is what proves it's yours.");
   }).catch(() => {
     // Clipboard refused, which some browsers do outside a gesture
     // they like the look of. The link itself is the fallback: shown,
@@ -4679,7 +4680,7 @@ function offerPaste() {
   xRender({
     title: xferRole === "holder" ? "add a device" : "your new device",
     note: "Paste the link from your other device. It should be the one in front of you, " +
-      "because the emoji you compare next are what prove it's yours.",
+      "because the code you check next is what proves it's yours.",
     alts: [
       { label: "use the camera instead", onClick: beginScanning },
       { label: "show a code instead", onClick: beginShowing },
@@ -4821,21 +4822,15 @@ function xRender(opts) {
   xShow(xQrEl, !!opts.qr);
   xShow(xCamEl, !!opts.camera);
   xShow(xSasEl, !!opts.sas);
-  if (opts.sas) {
-    xEmojiEl.textContent = opts.sas.emoji.join("");
-    xDigitsEl.textContent = opts.sas.digits;
-  }
+  if (opts.sas) xDigitsEl.textContent = opts.sas.digits;
   xShow(xListEl, !!opts.list);
   xListEl.innerHTML = "";
   for (const entry of opts.list || []) {
     const btn = document.createElement("button");
-    const em = document.createElement("div");
-    em.className = "xEmoji";
-    em.textContent = entry.sas.emoji.join("");
     const dg = document.createElement("div");
     dg.className = "xDigits";
     dg.textContent = entry.sas.digits;
-    btn.append(em, dg);
+    btn.append(dg);
     btn.addEventListener("click", () => opts.onPick(entry));
     xListEl.appendChild(btn);
   }
@@ -5135,7 +5130,7 @@ async function onTransferEvent(type, data) {
     return;
   }
 
-  // §3.8. A notice rather than a refusal: the code on the two
+  // §13. A notice rather than a refusal: the code on the two
   // screens is what settles which device is the real one, and this
   // says only that somebody else pointed a camera at it.
   if (type === "multi") {
@@ -5145,7 +5140,7 @@ async function onTransferEvent(type, data) {
     return;
   }
 
-  // §4 step 9 and §5 step 11: the tap that releases the key. The
+  // §7 step 11 and §8 step 12: the tap that releases the key. The
   // line naming what the other side claims to be is the only
   // defence against a page that is itself pretending to be the
   // device being added, which the code comparison cannot catch.
@@ -5157,8 +5152,8 @@ async function onTransferEvent(type, data) {
       title: "add a device",
       prompt: "Send your key to " + claim + " showing this?",
       sas: data.sas,
-      note: "Check that these four emoji and these six digits are what your other device is " +
-        "showing. If they aren't, this isn't your device.",
+      note: "Check that these five figures are what your other device is showing. If they " +
+        "aren't, this isn't your device.",
       buttons: [
         { label: "send my key", onClick: () => sendKey(data) },
         { label: "not mine", quiet: true, onClick: () => xfer && xfer.deny(data.peer) },
@@ -5218,7 +5213,7 @@ async function onTransferEvent(type, data) {
       ts: Math.floor(Date.now() / 1000),
       role: "holder",
       rung: "relay",
-      sas: data.sas.emoji.join("") + " " + data.sas.digits,
+      sas: data.sas.digits,
       peer: data.peer,
       multi: false,
     });
@@ -5281,7 +5276,7 @@ async function sendKey(data) {
   }
 }
 
-// §4 steps 14 and 15, §5 step 16: the key is in hand and still not
+// §7 steps 15 and 16, §8 step 16: the key is in hand and still not
 // stored. The person is shown who it would make them, because a key
 // that arrived from somebody else's device is a login somebody else
 // chose, and the name is the part of it they can recognise.
@@ -5340,11 +5335,11 @@ async function keepReceivedKey(peerHex) {
   for (const url of (xferRelays.get(peerHex) || []).slice().reverse()) {
     if (typeof url === "string" && /^wss?:\/\//.test(url)) rememberRelay(url);
   }
-  // §2.2's unlock setting travels with the key. Hearth has one
+  // The profile's `lock` tag travels with the key. Hearth has one
   // behaviour today, the default, and stores what arrived so that
   // the setting is not lost by the device that carried it.
   localStorage.setItem(LOCK_KEY, record.lock || "device");
-  // §8: the key arrives locked to this device. Whoever set this
+  // §14: the key arrives locked to this device. Whoever set this
   // device up did so by holding two devices together once, which is
   // not the same as deciding this is a place keys leave from.
   localStorage.setItem(RECEIVE_ONLY_KEY, "1");
@@ -5352,7 +5347,7 @@ async function keepReceivedKey(peerHex) {
     ts: Math.floor(Date.now() / 1000),
     role: "joiner",
     rung: "relay",
-    sas: record.sas.emoji.join("") + " " + record.sas.digits,
+    sas: record.sas.digits,
     peer: record.peer,
     multi: record.multi,
   });

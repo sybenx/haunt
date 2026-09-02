@@ -72,18 +72,17 @@ group are not theirs to hold. See `reference/push.md` for the relay's half.
 A member moves their identity to a second device by showing a code on one screen and
 scanning it with the other, using whatever the scanning phone already points at a code
 with. Two devices with no camera between them copy the link the code stands for and paste
-it into the other, which is the same bytes carried by hand. The specification's typed
-three-word code is not implemented, because copying covers that case with none of its
-machinery. Either way the two devices are meant to be in front of the person at once,
-which is why neither is described as sending anything anywhere. The code is an ordinary
+it into the other, which is the same bytes carried by hand. Either way the two devices are
+meant to be in front of the person at once, which is why neither is described as sending
+anything anywhere. The code is an ordinary
 web link to the copy of Hearth that drew it, carrying the pairing details in its fragment,
 because a camera app hands an unclaimed URL scheme to a web search rather than to anything
 useful. The fragment keeps those details out of every request log on the way. What they
 amount to is a temporary public key rather than the identity itself, so photographing the
 code achieves nothing.
 
-Both screens then show the same four emoji, derived from both temporary keys and from a
-random number each device committed to before it saw the other's, and the person compares
+Both devices then work out the same five figures, derived from both temporary keys and from
+a random number each device committed to before it saw the other's, and the person checks
 them. The device holding the key sends it only after its owner has read a line naming what
 the other device claims to be, and the device receiving it stores nothing until its owner
 agrees to the identity that arrived. The key travels as an encrypted message over public
@@ -94,10 +93,13 @@ identity that already exists somewhere else, and that is something a person goes
 behind the account icon rather than something Hearth asks them for.
 
 That transfer follows an outside specification rather than something invented here, so a
-key can move between Hearth and any other client that implements it. The specification
-lives in the nostr-key-management repository. `keyxfer.js` implements the part of it that
-carries a key between two devices, `keyxfer-vectors.json` holds the known answers a second
-implementation has to reproduce, and `vectors.html` checks them.
+key can move between Hearth and any other client that implements it. The specification is
+QR Secret Transfer, which lives in the nostr-key-management repository along with the
+`nostr-nsec` profile naming what Hearth moves under it. `keyxfer.js` implements it and
+knows nothing about Hearth, `keyxfer-vectors.json` holds the known answers a second
+implementation has to reproduce, and `vectors.html` checks them. Its event kinds are
+unregistered placeholders in the specification too, so a build of Hearth pairs with a build
+of Hearth and with nothing else until they are settled.
 
 ## What is private and what is not
 

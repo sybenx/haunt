@@ -20,7 +20,7 @@ p.note{
 ul{list-style:none;margin:0;padding:0}
 li{padding:3px 0;border-bottom:1px solid rgba(240,220,196,.06)}
 li .detail{display:block;color:#82705d;font-size:12px;white-space:pre-wrap;word-break:break-all}
-.emoji{font-size:22px;letter-spacing:6px}
+.digits{font-size:22px;letter-spacing:6px;font-family:ui-monospace,monospace}
 </style>
 </head>
 <body>
@@ -62,20 +62,24 @@ function eq(name, got, want) {
 (async function run() {
   const V = await (await fetch("keyxfer-vectors.json")).json();
 
-  eq("the emoji table is the one the vectors were made against", K.EMOJI_TABLE, V.emoji_table.table);
-  eq("the table has 64 entries", K.EMOJI_TABLE.length, 64);
-
   const s = V.sas;
+  // The profile is hashed into the code, so a build moving something
+  // other than what the vectors were made for cannot match them and
+  // should not appear to.
+  eq("the profile is the one the vectors were made against", K.PROFILE, s.profile);
+
   eq("commitment, holder", await K.sasCommit(s.holder_pubkey, K.fromHex(s.nonce_holder)), s.commit_holder);
   eq("commitment, joiner", await K.sasCommit(s.joiner_pubkey, K.fromHex(s.nonce_joiner)), s.commit_joiner);
 
   const code = await K.sasCode(s.holder_pubkey, s.joiner_pubkey,
     K.fromHex(s.nonce_holder), K.fromHex(s.nonce_joiner));
   eq("code", code.hex, s.code);
-  eq("emoji", code.emoji, s.emoji);
   eq("digits", code.digits, s.digits);
+  // Five, always. A build that dropped the padding would agree with
+  // the vectors on every code that happened not to need it.
+  record("the code is five figures", /^[0-9]{5}$/.test(code.digits));
   const shown = document.createElement("li");
-  shown.innerHTML = '<span class="emoji">' + code.emoji.join("") + "</span> " + code.digits;
+  shown.innerHTML = '<span class="digits">' + code.digits + "</span>";
   results.appendChild(shown);
 
   // The two burners are hashed in role order, holder first, and never
@@ -95,13 +99,15 @@ function eq(name, got, want) {
 
   const w = V.wrap;
   const opened = await K.unwrap(w.event, K.fromHex(w.joiner_privkey));
-  eq("a wrap opens to the rumor inside it", opened.rumor, w.unsealed_rumor);
-  eq("the seal names the key that signed it", opened.sealSigner, w.seal_signer);
+  eq("a wrap opens to the rumor inside it", opened.rumor.id, w.rumor_id);
+  eq("the rumor inside it is the kind the vectors say", opened.rumor.kind, w.rumor_kind);
+  eq("the seal names the key that signed it", opened.sealSigner, w.holder_pubkey);
 
   // Not a known answer: a fresh wrap is different every time. What is
   // fixed is that its expiration comes from the clock rather than from
   // its own created_at, which NIP-59 puts up to two days in the past.
-  const rumor = await K.makeRumor(w.holder_pubkey, 24301, [["burner", w.holder_pubkey]], "");
+  const rumor = await K.makeRumor(w.holder_pubkey, K.KINDS.PAYLOAD,
+    [["burner", w.holder_pubkey]], "");
   const fresh = await K.wrapRumor(rumor, K.fromHex(n.holder_privkey), w.joiner_pubkey);
   const expiration = Number(fresh.tags.find((t) => t[0] === "expiration")[1]);
   const now = Math.floor(Date.now() / 1000);

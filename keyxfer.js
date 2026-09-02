@@ -1,25 +1,25 @@
 /* ============================================================
    carrying a key to another device
 
-   This is NOSTR_KEY_MANAGEMENT.md §3 through §5, and nothing else
-   in this file knows what hearth is. Two devices each make a
-   throwaway keypair, one shows a QR carrying its burner's public
-   half, the other scans it, and everything after that travels as a
-   NIP-59 gift wrap addressed to a burner. Relays see a wrap
-   addressed to a key that exists for ten minutes and has never
-   said anything else.
+   This is QR_SECRET_TRANSFER.md — the qrst specification — under
+   its `nostr-nsec` profile, and nothing else in this file knows
+   what hearth is. Two devices each make a throwaway keypair, one
+   shows a QR carrying its burner's public half, the other scans
+   it, and everything after that travels as a NIP-59 gift wrap
+   addressed to a burner. Relays see a wrap addressed to a key that
+   exists for ten minutes and has never said anything else.
 
    Both flows are here because a person's devices do not all have
    cameras pointing the same way. In flow A the device receiving
    the key shows the QR and the device holding it scans; in flow B
-   it is the other way round. They share the burners, the code the
-   two screens compare, the message kinds and the wrap handling, so
-   the second flow is a few branches rather than a second protocol.
+   it is the other way round. They share the burners, the code, the
+   message kinds and the wrap handling, so the second flow is a few
+   branches rather than a second protocol.
 
    The one thing this file will not do is decide. It hands the
-   screen a code to show and waits: a key is only ever released
-   after the person holding it says so, and only ever stored after
-   the person receiving it says so.
+   screen a code and waits: a key is only ever released after the
+   person holding it says so, and only ever stored after the person
+   receiving it says so.
    ============================================================ */
 (function (global) {
 "use strict";
@@ -27,26 +27,14 @@
 const S = global.NobleSecp256k1;
 const KF = global.NobleKeyFormats;
 
-/* ---------- the code two screens compare (spec Appendix A) ----------
+/* ---------- what is being moved (qrst §5) ----------
 
-   Sixty-four emoji, in this order, and the order is the whole of
-   the table: index 37 must be a lemon in every client that ever
-   speaks this protocol or two honest devices show different codes
-   and the transfer is abandoned by a person who did the right
-   thing. They are single code points with no modifiers, no flags
-   and no pairs that differ only in colour, which is what the
-   specification asks for, and all of them predate Unicode 10 so a
-   phone several years old draws them rather than a box. */
-const EMOJI_TABLE = [
-  "🐶", "🐱", "🦊", "🐻", "🐯", "🐷", "🐸", "🐔",
-  "🐧", "🦉", "🐴", "🦔", "🐘", "🐌", "🐪", "🐳",
-  "🐝", "🦇", "🦋", "🐢", "🐍", "🐙", "🦀", "🐟",
-  "🌵", "🌲", "🍀", "🍁", "🌻", "🌹", "🍄", "🌈",
-  "🍎", "🍌", "🍇", "🍉", "🍋", "🍒", "🥕", "🌽",
-  "🍞", "🧀", "🍕", "🍔", "🌮", "🍦", "🍰", "☕",
-  "⚽", "🏀", "🎸", "🎺", "🎹", "🥁", "🎈", "🎁",
-  "🚀", "🚗", "🚲", "🚂", "⛵", "⚓", "💡", "⭐",
-];
+   The profile names the kind of secret in the code and is hashed
+   into the short code itself, so two devices that disagree about
+   what is moving cannot agree on a number to compare. Hearth moves
+   whole identity keys and nothing else, so there is one of these
+   and it is not configurable. */
+const PROFILE = "nostr-nsec";
 
 /* ---------- the relays a transfer travels over ----------
 
@@ -65,39 +53,43 @@ const DEFAULT_RELAYS = [
   "wss://offchain.pub",
 ];
 
+// qrst §11.4. Placeholders in the specification too: they are not
+// registered anywhere and are expected to change once they are, so
+// a build of hearth pairs with a build of hearth and nothing else
+// until that happens.
 const KINDS = {
   SEAL: 13,           // NIP-59
   GIFT_WRAP: 1059,    // NIP-59
   CLIENT_AUTH: 22242, // NIP-42, signed by the burner rather than the identity
-  KEY_HELLO: 24301,
-  KEY_REQUEST: 24302,
-  KEY_TRANSFER: 24303,
-  TRANSFER_ACK: 24310,
-  SAS_NONCE: 24312,
-  SAS_REVEAL: 24313,
+  HELLO: 24401,
+  REQUEST: 24402,
+  NONCE: 24403,
+  REVEAL: 24404,
+  PAYLOAD: 24405,
+  ACK: 24406,
+  ABORT: 24407,
 };
 
 // The kinds this file speaks. Anything else inside a session is the
 // caller's own and is handed to it untouched.
 const KNOWN_KINDS = new Set([
-  KINDS.KEY_HELLO, KINDS.KEY_REQUEST, KINDS.KEY_TRANSFER,
-  KINDS.TRANSFER_ACK, KINDS.SAS_NONCE, KINDS.SAS_REVEAL,
+  KINDS.HELLO, KINDS.REQUEST, KINDS.PAYLOAD,
+  KINDS.ACK, KINDS.NONCE, KINDS.REVEAL, KINDS.ABORT,
 ]);
 
 const VERSION = "1";              // the `v` tag and the QR's v=
-const SESSION_SECONDS = 600;      // §3, a session lives ten minutes
-const WRAP_EXPIRY_SECONDS = 600;  // §3.4
-const SINCE_BACKDATE = 172800;    // §3.5, two days
-const PROBE_MS = 3000;            // §3.1
-const ZEROIZE_AFTER_MS = 60000;   // §4 step 16, §5 step 18
-const MAX_PENDING = 5;            // §5, pending requests per session
-const SAS_LIST_MAX = 3;           // §4 step 10
-// A rumor's own created_at is set by the other device's clock, and
-// two phones disagree by a minute often enough that a window with
-// no slack in it would throw away honest transfers. §3.8's window
-// exists to stop a backdated rumor slipping past the
-// multiple-responder counter, and backdating by two minutes does
-// not achieve that, so the slack costs the check nothing.
+const SESSION_SECONDS = 600;      // §2, a session lives ten minutes
+const WRAP_EXPIRY_SECONDS = 600;  // §11.4
+const SINCE_BACKDATE = 172800;    // §11.5, two days
+const ZEROIZE_AFTER_MS = 60000;   // §7 step 18, §8 step 18
+const MAX_PENDING = 5;            // §8, pending requests per session
+const SAS_LIST_MAX = 3;           // §9, codes shown at once
+// §11.4's SLACK, and normative rather than a choice made here: a
+// rumor's own created_at is set by the other device's clock, two
+// phones disagree by a minute often enough that a window with no
+// give in it would throw away honest transfers, and a client that
+// accepts what another rejects fails honest pairings in a way that
+// looks exactly like interference.
 const CLOCK_SLACK = 120;
 
 /* ============================================================
@@ -333,26 +325,42 @@ async function verifyEvent(ev) {
   }
 }
 
+// The `nostr-nsec` profile's P4 check. A scalar of zero or one at
+// or above the curve order is not a key, and noble refuses to
+// derive from it, so the derivation is the check.
+function validPrivkeyHex(hex) {
+  if (!/^[0-9a-f]{64}$/.test(hex)) return false;
+  try {
+    S.schnorr.getPublicKey(fromHex(hex));
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
 function tagValue(tags, name) {
   for (const t of tags || []) if (t[0] === name) return t[1];
   return undefined;
 }
 
 /* ============================================================
-   the short code (§3.3)
+   the short code (qrst §6)
 
-   Four emoji and six digits, derived from both burners and both
-   random nonces. The device that made contact commits to its
-   nonce before it learns the other's, which is what stops
-   somebody in the middle from picking a nonce that makes two
-   different codes match: they have to commit to a value before
-   they can see what it must match, and each session gives them
-   exactly one guess that either works or is visible on screen as
-   a mismatch.
+   Five digits, derived from the profile, both burners and both
+   random nonces. The device that made contact commits to its nonce
+   before it learns the other's, which is what stops somebody in
+   the middle from picking a nonce that makes two different codes
+   match: they have to commit to a value before they can see what
+   it must match, and each session gives them exactly one guess.
+
+   Five, and not six or four, because no secret anybody holds is
+   five digits long. A bank PIN is four and a message code is six,
+   so a five-position field matches nothing a person could be
+   phished into reaching for.
    ============================================================ */
 async function sasCommit(contactingPubHex, nonce) {
   return toHex(await S.utils.sha256(concat(
-    enc.encode("keyxfer-commit-v1"), fromHex(contactingPubHex), nonce)));
+    enc.encode("qrst-commit-v1"), fromHex(contactingPubHex), nonce)));
 }
 
 // The order is the two roles, holder first, and never the order
@@ -360,57 +368,81 @@ async function sasCommit(contactingPubHex, nonce) {
 // is the holder in flow A and the joiner in flow B, so a version
 // of this that hashed "me then them" would agree with itself and
 // with nothing else.
+//
+// The profile goes in first, length-prefixed, so that two devices
+// which disagree about what kind of secret is moving cannot arrive
+// at the same number — the agreement about that is part of what
+// the person checks rather than something checked afterwards.
 async function sasCode(holderPubHex, joinerPubHex, nonceHolder, nonceJoiner) {
+  const profile = enc.encode(PROFILE);
   const code = await S.utils.sha256(concat(
-    enc.encode("keyxfer-sas-v2"),
+    enc.encode("qrst-sas-v1"),
+    new Uint8Array([profile.length]), profile,
     fromHex(holderPubHex), fromHex(joinerPubHex),
     nonceHolder, nonceJoiner));
-  const emoji = [];
-  for (let i = 0; i < 4; i++) emoji.push(EMOJI_TABLE[code[i] & 0x3f]);
-  const n = ((code[4] << 24) | (code[5] << 16) | (code[6] << 8) | code[7]) >>> 0;
-  const digits = String(n % 1000000).padStart(6, "0");
-  return { emoji, digits, hex: toHex(code) };
+  // Five bytes rather than four, so that reducing them to five
+  // digits leaves a bias too small to be worth a sentence.
+  const n = code[0] * 4294967296 + (((code[1] << 24) | (code[2] << 16) |
+    (code[3] << 8) | code[4]) >>> 0);
+  const digits = String(n % 100000).padStart(5, "0");
+  return { digits, hex: toHex(code) };
 }
 
 /* ============================================================
-   the QR (§3.2)
+   the QR (qrst §11.2)
    ============================================================ */
+const SCHEME = "qrst://";
+
 function buildUri(params) {
   const npub = KF.bech32.encode("npub", KF.bech32.toWords(fromHex(params.burner)), 5000);
   const q = new URLSearchParams();
   q.set("v", VERSION);
   q.set("mode", params.mode);
+  // Required, and required even though hearth has exactly one:
+  // it is hashed into the code the two devices compare, so a field
+  // that is sometimes absent is two implementations disagreeing
+  // about how to hash nothing.
+  q.set("p", PROFILE);
   for (const relay of params.relays) q.append("relay", relay);
   q.set("plat", "web");
   // Required for plat=web, and the reason the other device's
   // consent prompt can name a host at all.
   q.set("origin", params.origin);
-  return "nostr+keyxfer://" + npub + "?" + q.toString();
+  return SCHEME + npub + "?" + q.toString();
 }
 
 function parseUri(text) {
-  if (typeof text !== "string" || !text.startsWith("nostr+keyxfer://")) {
-    throw new Error("that code isn't a hearth device code");
+  if (typeof text !== "string" || !text.startsWith(SCHEME)) {
+    throw new Error("that code isn't a device code");
   }
-  const rest = text.slice("nostr+keyxfer://".length);
+  const rest = text.slice(SCHEME.length);
   const cut = rest.indexOf("?");
   const npub = cut === -1 ? rest : rest.slice(0, cut);
   const q = new URLSearchParams(cut === -1 ? "" : rest.slice(cut + 1));
-  // A client must refuse a version it does not know and a code
-  // that says nothing about which way the key is meant to travel.
+  // A client must refuse a version it does not know, a code that
+  // says nothing about which way the key is meant to travel, and a
+  // code naming a kind of secret it cannot handle — the last one
+  // before a burner exists, rather than at the end of a ceremony
+  // somebody has already sat through.
   if (q.get("v") !== VERSION) throw new Error("that code comes from a newer version of hearth");
   const mode = q.get("mode");
   if (mode !== "offer" && mode !== "request") {
     throw new Error("that code doesn't say which device holds the key");
   }
+  const profile = q.get("p");
+  if (!profile) throw new Error("that code doesn't say what it's offering to move");
+  if (profile !== PROFILE) {
+    throw new Error("that code is moving something hearth doesn't handle (" + profile + ")");
+  }
   const decoded = KF.bech32.decode(npub, 5000);
-  if (decoded.prefix !== "npub") throw new Error("that code isn't a hearth device code");
+  if (decoded.prefix !== "npub") throw new Error("that code isn't a device code");
   const burner = toHex(Uint8Array.from(KF.bech32.fromWords(decoded.words)));
-  if (burner.length !== 64) throw new Error("that code isn't a hearth device code");
+  if (burner.length !== 64) throw new Error("that code isn't a device code");
   const relays = q.getAll("relay").slice(0, 4);
   return {
     burner,
     mode,
+    profile,
     relays: relays.length > 0 ? relays : DEFAULT_RELAYS.slice(),
     plat: q.get("plat") || null,
     origin: q.get("origin") || null,
@@ -665,8 +697,8 @@ function relayPool(urls, burner, onEvent, onHealth) {
 function startSession(opts) {
   const role = opts.role;                   // "holder" | "joiner"
   const showing = !!opts.showing;           // does this device draw the QR
-  // Flow A is the joiner showing (§4); flow B is the holder
-  // showing (§5). Which one this is decides who commits first,
+  // Flow A is the joiner showing (§7); flow B is the holder
+  // showing (§8). Which one this is decides who commits first,
   // and getting that backwards makes two honest devices show
   // different codes.
   const flow = (role === "joiner") === showing ? "A" : "B";
@@ -698,7 +730,7 @@ function startSession(opts) {
     return peer;
   }
 
-  // §3.8. Counted on the device that showed the code, because that
+  // §13. Counted on the device that showed the code, because that
   // is the code somebody else may have pointed a camera at. The
   // session carries on: the code on the two screens is what
   // settles which of them is real, and this is a notice rather
@@ -723,12 +755,12 @@ function startSession(opts) {
   // Everything a rumor has to satisfy before it is looked at as a
   // message rather than as bytes somebody sent.
   function admissible(rumor, sealSigner) {
-    // §3.4: the burner a rumor names and the key that sealed it
-    // are the same key, or somebody is forwarding a message that
-    // was not theirs.
+    // §11.4: all three of the rumor's own pubkey, the burner it
+    // names in a tag and the key that sealed it are one key, or
+    // somebody is forwarding a message that was not theirs.
     if (tagValue(rumor.tags, "burner") !== sealSigner) return false;
     if (rumor.pubkey !== sealSigner) return false;
-    // §3.8: a rumor whose own created_at is outside this session
+    // §13: a rumor whose own created_at is outside this session
     // is discarded here and not anywhere later, so that a
     // backdated timestamp cannot buy its sender a quiet arrival
     // that skips the notice above.
@@ -745,7 +777,7 @@ function startSession(opts) {
     try {
       opened = await unwrap(wrapEvent, burner.priv);
     } catch (err) {
-      // A wrap that will not open is not a responder (§3.8). It is
+      // A wrap that will not open is not a responder (§13). It is
       // most likely addressed to somebody else on a relay that
       // does not filter as tightly as it claims.
       return;
@@ -764,14 +796,14 @@ function startSession(opts) {
 
   async function handleRumor(rumor, from) {
     /* ---- the contacting device's opening message ---- */
-    if (rumor.kind === KINDS.KEY_HELLO || rumor.kind === KINDS.KEY_REQUEST) {
-      const expected = flow === "A" ? KINDS.KEY_HELLO : KINDS.KEY_REQUEST;
+    if (rumor.kind === KINDS.HELLO || rumor.kind === KINDS.REQUEST) {
+      const expected = flow === "A" ? KINDS.HELLO : KINDS.REQUEST;
       if (rumor.kind !== expected || contacting) return;
       const existing = peers.get(from);
       // A retransmission from a burner already answered is the
-      // same responder, not a second one (§3.8).
+      // same responder, not a second one (§13).
       if (existing && existing.commit) return;
-      // §5: at most five pending requests in a session, so a
+      // §8: at most five pending requests in a session, so a
       // flooder costs the person a handful of taps rather than an
       // unbounded queue.
       if (peers.size >= MAX_PENDING) { noteResponder(); return; }
@@ -781,25 +813,25 @@ function startSession(opts) {
       peer.commit = commit;
       peer.nonce = S.utils.randomBytes(32);
       noteResponder();
-      await send(KINDS.SAS_NONCE, [["burner", burner.pub], ["nonce", toHex(peer.nonce)]], "", from);
+      await send(KINDS.NONCE, [["burner", burner.pub], ["nonce", toHex(peer.nonce)]], "", from);
       return;
     }
 
     /* ---- the other device's nonce, answering our commit ---- */
-    if (rumor.kind === KINDS.SAS_NONCE) {
+    if (rumor.kind === KINDS.NONCE) {
       if (!contacting) return;
       const peer = peerFor(from);
       if (peer.theirNonce) return;
       const nonce = tagValue(rumor.tags, "nonce");
       if (!nonce || nonce.length !== 64) return;
       peer.theirNonce = fromHex(nonce);
-      await send(KINDS.SAS_REVEAL, [["burner", burner.pub], ["nonce", toHex(ownNonce)]], "", from);
+      await send(KINDS.REVEAL, [["burner", burner.pub], ["nonce", toHex(ownNonce)]], "", from);
       await settleSas(peer);
       return;
     }
 
     /* ---- the contacting device opening its commit ---- */
-    if (rumor.kind === KINDS.SAS_REVEAL) {
+    if (rumor.kind === KINDS.REVEAL) {
       if (contacting) return;
       const peer = peers.get(from);
       if (!peer || !peer.commit || peer.theirNonce) return;
@@ -815,15 +847,18 @@ function startSession(opts) {
     }
 
     /* ---- the key itself ---- */
-    if (rumor.kind === KINDS.KEY_TRANSFER) {
+    if (rumor.kind === KINDS.PAYLOAD) {
       if (role !== "joiner") return;
       const peer = peers.get(from);
-      // Only from a burner this device is already talking to. A
-      // key from a burner that never exchanged a nonce is one
+      // Only from a burner this device is already exchanging
+      // nonces with. A key from a burner that never did is one
       // nobody asked for.
-      if (!peer || !peer.theirNonce && !peer.nonce) return;
+      if (!peer || !peer.nonce && !peer.theirNonce) return;
       const hex = (rumor.content || "").trim().toLowerCase();
-      if (!/^[0-9a-f]{64}$/.test(hex)) return;
+      // The profile's P4 check: sixty-four hex characters that are
+      // a scalar in range and give a usable public key. Anything
+      // else is not a key and is not held as though it might be.
+      if (!validPrivkeyHex(hex)) return;
       // Held, not stored. Nothing is written until the person has
       // picked the code their other device is showing and agreed
       // to the identity that came with it: without that, whoever
@@ -848,7 +883,7 @@ function startSession(opts) {
     }
 
     /* ---- the receipt that lets a holder let go ---- */
-    if (rumor.kind === KINDS.TRANSFER_ACK) {
+    if (rumor.kind === KINDS.ACK) {
       if (role !== "holder") return;
       const peer = peers.get(from);
       if (!peer || !peer.sent) return;
@@ -857,10 +892,10 @@ function startSession(opts) {
     }
   }
 
-  // Both nonces are in, so both screens can show the same four
-  // emoji and six digits. What happens next is the only thing the
-  // two roles do differently at this point: a holder is asked to
-  // release the key, a joiner is told what to compare.
+  // Both nonces are in, so both devices can work out the same five
+  // figures. What happens next is the only thing the two roles do
+  // differently at this point: a holder is asked to release the
+  // key, a joiner is told what to show.
   async function settleSas(peer) {
     // Role order, holder first, whichever of the two this device
     // happens to be and whichever message arrived first. Our own
@@ -881,7 +916,7 @@ function startSession(opts) {
     }
   }
 
-  // §5: one at a time. A second device asking while the person is
+  // §8: one at a time. A second device asking while the person is
   // reading the first prompt waits its turn rather than replacing
   // what is on screen under their thumb.
   function askConsent(peer) {
@@ -905,7 +940,7 @@ function startSession(opts) {
     emit("arrived", { peer: peer.burner, sas: peer.sas, single: !!scanned });
   }
 
-  // §4 step 10: the three most recent, newest first, so a person
+  // §9: the three most recent, newest first, so a person
   // whose code was scanned by somebody else still has a short list
   // to find their own device in rather than a long one.
   function sasList() {
@@ -942,10 +977,10 @@ function startSession(opts) {
       const peer = peers.get(peerHex);
       if (!peer || !peer.sas || finished) return;
       peer.sent = true;
-      await send(KINDS.KEY_TRANSFER,
+      await send(KINDS.PAYLOAD,
         [["burner", burner.pub], ["lock", lock || "device"]], privkeyHex, peerHex);
       emit("sent", { peer: peerHex, sas: peer.sas });
-      // §4 step 16 and §5 step 18: the burner goes when the other
+      // §7 step 18 and §8 step 18: the burner goes when the other
       // device says it has the key, or a minute later regardless.
       // A joiner that never acknowledges is one that never
       // stored it, and holding a burner open past that is holding
@@ -960,7 +995,7 @@ function startSession(opts) {
       if (peer) { peer.denied = true; peers.delete(peerHex); }
       if (awaitingConsent === peerHex) awaitingConsent = null;
       const next = nextPending();
-      // §5 step 12: a denial moves on to whoever else is waiting,
+      // §8 step 13: a denial moves on to whoever else is waiting,
       // or back to waiting. It does not end the session, because
       // the person the user is actually adding may be the next one
       // in the queue.
@@ -989,7 +1024,7 @@ function startSession(opts) {
         peer: peerHex,
         multi: multiSeen,
       };
-      await send(KINDS.TRANSFER_ACK, [["burner", burner.pub]], "", peerHex);
+      await send(KINDS.ACK, [["burner", burner.pub]], "", peerHex);
       // A moment for the acknowledgement to reach a relay before
       // the sockets are closed under it; the holder's own minute
       // covers it either way.
@@ -1051,10 +1086,10 @@ function startSession(opts) {
     // other's.
     ownNonce = S.utils.randomBytes(32);
     ownCommit = await sasCommit(burner.pub, ownNonce);
-    const kind = flow === "A" ? KINDS.KEY_HELLO : KINDS.KEY_REQUEST;
-    // The specification's kind 24302 also carries an `enrol` tag
-    // naming a §11 enrolment key. Hearth has no threshold signing
-    // and so has no such key, and a tag naming a key that does not
+    const kind = flow === "A" ? KINDS.HELLO : KINDS.REQUEST;
+    // The profile's REQUEST also carries an `enroll` tag naming a
+    // threshold enrolment key. Hearth has no threshold signing and
+    // so has no such key, and a tag naming a key that does not
     // exist would be worse than an absent one.
     peerFor(scanned.burner);
     await send(kind, [["burner", burner.pub], ["commit", ownCommit]], "", scanned.burner);
@@ -1065,7 +1100,7 @@ function startSession(opts) {
 }
 
 global.Keyxfer = {
-  EMOJI_TABLE,
+  PROFILE,
   DEFAULT_RELAYS,
   KINDS,
   SESSION_SECONDS,
