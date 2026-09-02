@@ -15,6 +15,22 @@ person may belong to more than one.
 Hearth is a static page with no backend of its own. Everything it needs is either in the
 relay or on the user's device.
 
+What the group is called, who runs it and who belongs to it are all things the group says
+about itself, and the relay says them in events it generates and signs with its own key.
+Hearth reads those rather than the relay's NIP-11 document: a relay's name and a relay's
+operator are facts about a server, and answering questions about a group with them is only
+ever right on a relay that holds exactly one. The NIP-11 document is still read for the two
+things that genuinely are the server's own, which are the public half of its push key and
+whether the address the page was served from is a relay at all, and its name still stands in
+as a label for a relay that generates no metadata event.
+
+The member list that arrives with them is the group's real membership, which is a different
+question from who happens to be in the call. It is what lets Hearth learn what somebody is
+called before they have ever said anything, so a member who has never spoken is a name and
+not a string of hex the first time they appear. None of it reaches a client the relay has
+not yet admitted, because it lives inside the group along with everything else, and a client
+without it falls back to what it would have shown anyway.
+
 ## Joining
 
 A person joins by opening one link, and that link is the only thing they are ever asked

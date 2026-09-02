@@ -1035,13 +1035,26 @@ let halted = false; // a refused invite is final — no reconnect loop behind it
 // close and message events instead of reconnecting or writing into
 // the new connection's state.
 let connEpoch = 0;
-let roomName = null; // the relay's NIP-11 name — the group's label
+// The group's name, and the two places it can be told to Hearth. The
+// relay generates a kind 39000 for the group with the name in it, and
+// that is the group answering a question about itself. A relay that
+// generates none leaves the NIP-11 document's `name` standing in,
+// which is the relay answering instead — a relay-level field aimed at
+// a group-level question, right only because bothy hosts one group,
+// and kept so this does not regress against a relay that has nothing
+// better to offer.
+let groupName = null;
+let relayName = null;
+
+function roomName() {
+  return groupName || relayName;
+}
 
 // The group's name and the connection's state, in both places they
 // appear: under the pill in mode 1, in the top bar in modes 2 and 3.
 // A quiet, connected room shows only its name.
 function renderChrome() {
-  const name = roomName || "#" + GROUP_ID;
+  const name = roomName() || "#" + GROUP_ID;
   tbNameEl.textContent = name;
   vpNameEl.textContent = name;
   // The tab carries the group's name too, for somebody who has two
@@ -1134,6 +1147,14 @@ function subscribe() {
     // second of these cannot stand in for the first.
     { kinds: [KINDS.PROFILE], "#h": [GROUP_ID] },
     { kinds: [KINDS.PROFILE], authors: [identity.pubkey] },
+    // What the group says about itself, in the relay's own signed
+    // events. These are addressable and keyed by `d` rather than by
+    // `h`, so this is the one filter here that does not name the
+    // group the way the others do. They live in the group's
+    // partition, so none of them arrives until the read gate has
+    // admitted this key, and a client that is not a member yet simply
+    // hears nothing back.
+    { kinds: [KINDS.GROUP_METADATA, KINDS.GROUP_ADMINS, KINDS.GROUP_MEMBERS], "#d": [GROUP_ID] },
     { kinds: [KINDS.CALL_PRESENCE], "#h": [GROUP_ID] },
     { kinds: [KINDS.CALL_SIGNAL], "#h": [GROUP_ID], "#p": [identity.pubkey] },
   ]));
@@ -1160,6 +1181,9 @@ async function handleFrame(frame, relayUrl, epoch) {
     if (event.kind === KINDS.CHAT) renderIncoming(event);
     else if (event.kind === KINDS.MEMBER) recordName(memberNames, event);
     else if (event.kind === KINDS.PROFILE) recordName(profileNames, event);
+    else if (event.kind === KINDS.GROUP_METADATA ||
+             event.kind === KINDS.GROUP_ADMINS ||
+             event.kind === KINDS.GROUP_MEMBERS) recordGroupState(event);
     else if (event.kind === KINDS.CALL_PRESENCE) handlePresence(event);
     else if (event.kind === KINDS.CALL_SIGNAL) handleSignal(event);
     return;
@@ -1178,6 +1202,9 @@ async function handleFrame(frame, relayUrl, epoch) {
     callNewsAt = Date.now() + HEARTBEAT_MS + 1500;
     seedNameFromProfile();
     refreshSeededName();
+    // Every name the group holds has now arrived, so whoever is still
+    // nameless is nameless here and nowhere else is going to say so.
+    lookupRosterNames();
     return;
   }
 
@@ -1309,6 +1336,133 @@ async function handleFrame(frame, relayUrl, epoch) {
         showBanner("[call] " + entry.label + " refused: " + (message || "no reason given"));
       }
     }
+  }
+}
+
+/* ============================================================
+   the group, as the relay states it
+
+   NIP-29 has the relay generate three addressable events about every
+   group it holds and sign them with its own key: the metadata, the
+   admins and the members. Between them they answer, at the group's
+   level, the three questions Hearth used to put to the relay's NIP-11
+   document — what this room is called, whether this identity runs it,
+   and who belongs to it — and they go on answering them correctly on
+   a relay holding more than one group, which NIP-11 never could.
+
+   All three live in the group's partition, so a key the relay has not
+   admitted hears none of them. That is a state to degrade into rather
+   than to guard against, and each of the three degrades on its own:
+   no metadata leaves the relay's NIP-11 name standing as the label,
+   no admin list leaves this identity an ordinary member, and no
+   member list leaves the roster empty. That is precisely what Hearth
+   showed before any of this arrived.
+   ============================================================ */
+
+let isOwner = false;
+
+// Real membership, which is a different question from who is in the
+// call: presence is a heartbeat that stops when somebody closes the
+// tab, and this is the relay's own record of who belongs here.
+const groupMembers = new Set();
+
+// Newest wins, per kind. These are addressable, so the relay holds
+// one of each, and an older copy only turns up when a reconnect
+// replays history that a live update has already overtaken.
+const groupStateAt = new Map(); // kind -> created_at
+
+// The pubkeys a relay-generated list names. An admin list carries the
+// role alongside each one; a member list carries the pubkey alone.
+function pubkeysOf(event) {
+  return event.tags
+    .filter((t) => t[0] === "p" && typeof t[1] === "string" && /^[0-9a-f]{64}$/.test(t[1]))
+    .map((t) => t[1]);
+}
+
+async function recordGroupState(event) {
+  // Signed by the relay's own key, with the id a hash of the event's
+  // own contents as in every other event, so the ordinary check reads
+  // it without knowing it is special. What it catches is anything
+  // between here and the relay that rewrote a name, an admin or a
+  // member and could not sign the result.
+  //
+  // Which key signed it is not checked, because the only place Hearth
+  // could learn the relay's own pubkey is the NIP-11 document this
+  // whole section exists to stop trusting. A relay that let a member
+  // publish one of these could therefore hand them a room label and
+  // the invite section, and neither is worth anything: creating an
+  // invite is refused by the relay on its own authority.
+  if (!(await eventIsGenuine(event))) return;
+  const seenAt = groupStateAt.get(event.kind);
+  if (seenAt !== undefined && seenAt >= event.created_at) return;
+  groupStateAt.set(event.kind, event.created_at);
+
+  if (event.kind === KINDS.GROUP_METADATA) {
+    const tag = event.tags.find((t) => t[0] === "name" && typeof t[1] === "string" && t[1].trim() !== "");
+    groupName = tag ? tag[1].trim() : null;
+    renderChrome();
+    return;
+  }
+
+  if (event.kind === KINDS.GROUP_ADMINS) {
+    // Hearth has one thing to do with a role, which is decide whether
+    // the invite section exists inside the account overlay, so being
+    // named here at all is the whole of what it reads.
+    isOwner = pubkeysOf(event).includes(identity.pubkey);
+    aoInvitesEl.hidden = !isOwner;
+    // This can land after the overlay is already open — a reconnect
+    // behind it, or a relay slow to answer — and an invite section
+    // that fills in a moment late beats one that stays empty.
+    if (isOwner && !accountOverlayEl.hidden) refreshInviteList();
+    return;
+  }
+
+  groupMembers.clear();
+  for (const pubkey of pubkeysOf(event)) groupMembers.add(pubkey);
+  lookupRosterNames();
+}
+
+/* ------------------------------------------------------------
+   A member who has never spoken and never named themselves here was,
+   until the roster arrived, a pubkey Hearth had no way of knowing
+   existed. Now it does, and the same lookup that rescues somebody
+   signing in with an extension can go and find what they are called
+   before they ever say a word. Every name and every avatar on screen
+   is drawn through knownName, so one answer here reaches all of them
+   and the short pubkey goes back to meaning what it is supposed to
+   mean: a member whose name has not reached this device yet.
+
+   Once per member per relay session, and the public relays only —
+   not the NIP-65 follow-up a single lookup makes, which is four more
+   sockets per person. Somebody whose profile lives nowhere common
+   stays a short pubkey until they name themselves here, which is the
+   first thing they do the first time they open Hearth.
+   ------------------------------------------------------------ */
+const rosterNamesAsked = new Set();
+
+async function lookupRosterNames() {
+  // Every name the group holds is on screen at EOSE and not before,
+  // so asking earlier would ask the public relays about people the
+  // group was about to name itself.
+  if (!historyDone) return;
+  const wanted = [...groupMembers].filter((pubkey) =>
+    pubkey !== identity.pubkey && !rosterNamesAsked.has(pubkey) && !knownName(pubkey));
+  if (wanted.length === 0) return;
+  for (const pubkey of wanted) rosterNamesAsked.add(pubkey);
+
+  // One filter for the lot. A group is ten or twenty people, so this
+  // is a single round of queries rather than one round per person.
+  const filters = [{ kinds: [KINDS.PROFILE], authors: wanted, limit: wanted.length }];
+  const seen = (await Promise.all(
+    NAME_LOOKUP_RELAYS.map((url) => queryRelay(url, filters))
+  )).flat();
+  for (const event of seen) {
+    if (!event || event.kind !== KINDS.PROFILE || !wanted.includes(event.pubkey)) continue;
+    if (!(await eventIsGenuine(event))) continue;
+    // Into the same map the subscription's own kind 0s land in, which
+    // is what keeps a name somebody chose in the group ahead of this
+    // one rather than under it.
+    recordName(profileNames, event);
   }
 }
 
@@ -1691,19 +1845,22 @@ async function publishMemberName(name, opts) {
 }
 
 /* ============================================================
-   the relay's NIP-11 document: the group's name, and whether this
-   identity is the owner
+   the relay's NIP-11 document: things that are the relay's own
 
-   The relay's stated name is the group's label — in bothy's
-   one-group world the relay is the group. Ownership decides
-   whether the invite section exists inside the account overlay;
-   everyone else never learns it is there. Creating an invite is a
-   kind-9009 over the websocket. Listing the outstanding ones is
-   the relay's own NIP-86 management API, because redeemed-or-not
-   lives in the relay's invite table, not in any event a
-   subscription could watch.
+   Two of them. The public half of the relay's VAPID key, which is a
+   property of the server and of nothing else, and the `name` that
+   stands in as the group's label on a relay generating no kind 39000.
+   Everything the group itself has to say about the group is read from
+   the relay-generated events above instead, which is where NIP-29
+   puts it.
+
+   Invites are here because owning the group is what unlocks them, and
+   that too is now read from the admin list. Creating one is a
+   kind-9009 over the websocket. Listing the outstanding ones is the
+   relay's own NIP-86 management API, because redeemed-or-not lives in
+   the relay's invite table and not in any event a subscription could
+   watch.
    ============================================================ */
-let isOwner = false;
 
 async function loadRelayInfo() {
   const forUrl = currentRelayUrl;
@@ -1711,14 +1868,12 @@ async function loadRelayInfo() {
   try {
     info = await fetchRelayInfo(forUrl);
   } catch (err) {
-    // No NIP-11 answer just means no name and no invite control.
+    // No NIP-11 answer just means no fallback name and no push.
   }
   if (!info) return;
   if (forUrl !== currentRelayUrl) return; // switched relays while the fetch was in flight
-  roomName = typeof info.name === "string" && info.name.trim() !== "" ? info.name.trim() : null;
+  relayName = typeof info.name === "string" && info.name.trim() !== "" ? info.name.trim() : null;
   renderChrome();
-  isOwner = info.pubkey === identity.pubkey;
-  aoInvitesEl.hidden = !isOwner;
   // A relay that can reach somebody with Hearth closed publishes the
   // public half of its VAPID key here. Without one, notifications
   // are still raised, but only while Hearth is open — and the
@@ -3848,13 +4003,17 @@ function switchRelay(url) {
   seenIds.clear();
   memberNames.clear();
   profileNames.clear();
+  groupMembers.clear();
+  groupStateAt.clear();
+  rosterNamesAsked.clear();
   call.presence.clear();
   msgsEl.innerHTML = "";
   halted = false;
   isOwner = false;
   aoInvitesEl.hidden = true;
   inviteLinkRowEl.hidden = true;
-  roomName = null;
+  groupName = null;
+  relayName = null;
   historyDone = false;
   vapidKey = null;
   unread = 0;
@@ -4040,7 +4199,8 @@ function faviconWith(dot) {
 }
 
 function renderUnread() {
-  const room = roomName ? "Hearth - " + roomName : "Hearth";
+  const named = roomName();
+  const room = named ? "Hearth - " + named : "Hearth";
   document.title = unread > 0 ? "(" + unread + ") " + room : room;
   const icon = document.querySelector('link[rel="icon"]');
   if (icon) icon.href = faviconWith(unread > 0);
@@ -4087,13 +4247,13 @@ function newsOfMessage(pubkey) {
   if (!notLooking()) return;
   unread += 1;
   renderUnread();
-  raiseBanner(roomName || "Hearth", displayName(pubkey) + " said something", "message");
+  raiseBanner(roomName() || "Hearth", displayName(pubkey) + " said something", "message");
 }
 
 function newsOfVoice(pubkey) {
   if (Date.now() < callNewsAt) return; // still finding out who was already here
   if (!notLooking()) return;
-  raiseBanner(roomName || "Hearth", displayName(pubkey) + " joined the call", "voice");
+  raiseBanner(roomName() || "Hearth", displayName(pubkey) + " joined the call", "voice");
 }
 
 /* ---------- turning it on ---------- */

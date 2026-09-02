@@ -1,6 +1,6 @@
 /* ============================================================
    Every nostr event kind hearth speaks, in one place. There are
-   ten now and there will be a couple of dozen once channels,
+   thirteen now and there will be a couple of dozen once channels,
    direct messages and device pairing land, so they live here
    rather than as bare numbers scattered through app.js.
    ============================================================ */
@@ -21,6 +21,17 @@ const KINDS = {
 
   // NIP-29 group chat message.
   CHAT: 9,
+
+  // NIP-29 group state, generated and signed by the relay itself
+  // rather than by anyone in the group. Addressable, with the group
+  // id in the `d`, so a relay holding two groups keeps two of each.
+  // These are the group answering questions about itself: what it is
+  // called, who runs it, and who is in it. Hearth used to ask the
+  // relay's NIP-11 document instead, which answered them at the wrong
+  // level and only ever worked because bothy hosts one group.
+  GROUP_METADATA: 39000,
+  GROUP_ADMINS: 39001,
+  GROUP_MEMBERS: 39002,
 
   // NIP-65. Not a kind Hearth publishes or stores: it is read once,
   // off the public relays, to find where somebody signing in with an
