@@ -4277,8 +4277,41 @@ const LOCK_KEY = "hearth:lock";
 // §8: a device given its key by another device does not pass it on
 // until the person says it may. One tap, nothing guarding it, and
 // said on the transfer screen rather than buried.
+/* ---------- what this device is allowed to send (qrst §14) ----------
+
+   A device that was given its key arrives locked, because somebody
+   held two devices together once and that is not the same as
+   deciding this is a place keys leave from.
+
+   Unlocking is one tap and is not guarded — a barrier in front of
+   somebody completing a transfer they meant to make is the thing §0
+   forbids — but it expires. An unguarded tap that granted a
+   permanent capability would be a permanent capability granted
+   without thought, which is a different thing from a low-friction
+   one. So the tap opens a window the person is shown, and the
+   window closes on its own.
+
+   Bounded by a clock rather than by the transfer, because the
+   account screen is reachable when no transfer is running and
+   "until you finish the thing you have not started" is not a state
+   anybody can be shown. */
+const UNLOCK_UNTIL_KEY = "hearth:send-until";
+const UNLOCK_MINUTES = 15;
+
+function unlockedUntil() {
+  const at = Number(localStorage.getItem(UNLOCK_UNTIL_KEY) || 0);
+  return Number.isFinite(at) && at > Date.now() ? at : 0;
+}
+
 function keyLocked() {
-  return localStorage.getItem(RECEIVE_ONLY_KEY) === "1";
+  if (localStorage.getItem(RECEIVE_ONLY_KEY) !== "1") return false;
+  return unlockedUntil() === 0;
+}
+
+// Minutes left on the window, for a screen that has to say so.
+function unlockMinutesLeft() {
+  const at = unlockedUntil();
+  return at ? Math.max(1, Math.ceil((at - Date.now()) / 60000)) : 0;
 }
 
 // §8: every transfer is written down where the person can see it,
@@ -4341,7 +4374,14 @@ function renderTransfers() {
    string the specification defines is the string its rules are
    written about, so it arrives at the parser exactly as it left the
    other device, and a version this build does not know is still
-   refused by the same line of code. */
+   refused by the same line of code.
+
+   The clipboard gets the bare qrst:// URI instead, which is §12.1
+   and is the opposite trade on purpose. A code has to be held up to
+   a camera; a link can be sent in a message, which is how credential
+   theft is already delivered. An https link in a message invites a
+   tap and a qrst:// string invites reading, so the less tappable
+   form is the one that belongs behind a copy button. */
 const PAIR_PARAM = "pair";
 const PAIR_SCHEME = "qrst://";
 
@@ -4654,20 +4694,24 @@ function watchTransport() {
 
    Said as pasting into the device in front of you, and never as
    sending. A code held up to a camera meant both devices were in the
-   same room and a link does not, and while the code is what actually
-   settles whether the far end is the right device, a flow that
-   invites somebody to message a link to themselves leaves that one
-   check holding everything up alone. People tap past checks. */
+   same room and a link does not, and while typing the far device's
+   number is what actually settles whether it is the right one, a
+   flow that invites somebody to message a link to themselves leaves
+   that one check holding everything up alone. §12.1 asks the consent
+   prompt to say so as well, which renderConsent does. */
 function copyPairingLink() {
   if (!xfer || !xfer.uri) return;
-  const link = pairingLink(xfer.uri).url;
+  // §12.1: the bare URI, not the https link the code carries. This
+  // is the one that can travel in a message, so it is the one that
+  // should not look like something to tap.
+  const link = xfer.uri;
   const said = (text) => {
     xPromptEl.textContent = text;
     xShow(xPromptEl, true);
   };
   navigator.clipboard.writeText(link).then(() => {
     said("Paste it into your other device. It should be the one in front of you, because " +
-      "the code you check next is what proves it's yours.");
+      "the code you type next is what proves it's yours.");
   }).catch(() => {
     // Clipboard refused, which some browsers do outside a gesture
     // they like the look of. The link itself is the fallback: shown,
@@ -4688,7 +4732,7 @@ function offerPaste() {
   xRender({
     title: xferRole === "holder" ? "add a device" : "your new device",
     note: "Paste the link from your other device. It should be the one in front of you, " +
-      "because the code you check next is what proves it's yours.",
+      "because the code you type next is what proves it's yours.",
     alts: [
       { label: "use the camera instead", onClick: beginScanning },
       { label: "show a code instead", onClick: beginShowing },
@@ -4721,6 +4765,9 @@ function usePastedLink() {
   }
   xShow(xPasteRowEl, false);
   xShow(xPasteGoBtn, true);
+  // Pasted, not scanned. Whatever put it on the clipboard, it was
+  // not this device looking at the other one.
+  xferFromOwnCamera = false;
   beginScanned(scanned);
 }
 
@@ -4812,6 +4859,12 @@ let xferOnClose = null;
 // the device showing a code.
 let xferScanned = null;
 let xferShowing = false;
+// Whether the code that started this came off this device's own
+// camera. §12.1: a code held up to a camera means somebody put it
+// in front of you; a link that arrived any other way says nothing
+// of the sort, and this device cannot tell which app handed it a
+// fragment on a page load. False means the release prompt says so.
+let xferFromOwnCamera = true;
 // Where the group is, as told by each device offering a key, kept
 // beside the key itself until one of them is accepted.
 const xferRelays = new Map();
@@ -5051,6 +5104,11 @@ function openPairing(pairing, onClose) {
     });
     return;
   }
+  // The phone's own camera app may well have read this, but it may
+  // equally have been a link somebody was sent. A fragment on a page
+  // load looks the same either way, so it is treated as the weaker
+  // of the two (§11.2a).
+  xferFromOwnCamera = false;
   beginScanned(pairing.scanned);
 }
 
@@ -5078,9 +5136,10 @@ function openTransfer(role, onClose) {
       xRender({
         title: "add a device",
         note: "Your key is locked to this device, so it can't be sent from here. Unlocking " +
-          "is one tap, and you can lock it again afterwards.",
+          "is one tap and lasts " + UNLOCK_MINUTES + " minutes, then it locks itself again.",
         buttons: [
-          { label: "unlock this device", onClick: () => { setKeyLocked(false); openTransfer("holder"); } },
+          { label: "unlock for " + UNLOCK_MINUTES + " minutes",
+            onClick: () => { setKeyLocked(false); openTransfer("holder"); } },
           { label: "not now", quiet: true, onClick: closeTransfer },
         ],
       });
@@ -5099,6 +5158,8 @@ function beginShowing() {
   stopCamera();
   xferScanned = null;
   xferShowing = true;
+  // Nothing arrived; this device is the one being looked at.
+  xferFromOwnCamera = true;
   const showing = xferRole === "joiner";
   // The screen is put up before the session starts, because the
   // session hands back its code the moment it has one and a render
@@ -5186,6 +5247,7 @@ function beginScanning() {
     taken = true;
     console.info("hearth: scanner accepted a code after", scanStats.frames, "frames");
     stopCamera();
+    xferFromOwnCamera = true;
     beginScanned(scanned);
   }).catch((err) => {
     xRender({
@@ -5451,6 +5513,15 @@ function renderConsent(data) {
   // alarm raised every time is one people stop reading — which
   // leaves nothing for the case that is almost always an attack.
   const web = !!data.origin;
+  // §12.1 and §11.2a: a code held up to a camera means somebody put
+  // it in front of you. A link that arrived some other way means
+  // nothing of the sort, and this device cannot tell a camera app
+  // from a chat app — both arrive as a fragment on a page load — so
+  // it has to say the weaker thing.
+  const unscanned = xferFromOwnCamera
+    ? ""
+    : " This request didn't come from this device's camera, so nothing about it says the " +
+      "other device is in the room with you.";
 
   const send = () => sendKey(data);
   const decline = { label: "don't send", onClick: () => xfer && xfer.deny(data.peer) };
@@ -5460,7 +5531,7 @@ function renderConsent(data) {
     prompt: "You are about to give " + claim + " your key.",
     note: "This is the identity itself, not a permission you can take back later. Whoever " +
       "holds it is you, on Nostr, permanently — there is no way to change the key afterwards. " +
-      "The list of relays this device uses goes with it.",
+      "The list of relays this device uses goes with it." + unscanned,
     code: {
       label: "Type the five figures shown on your other device",
       onSubmit: (typed) => {
@@ -5603,22 +5674,33 @@ async function keepReceivedKey(peerHex) {
 // Both ways, and unguarded in both. The specification asks for one
 // tap, and a lock whose key is in the same room as the door is not
 // made stronger by making it stiff.
+// Locking is permanent and unlocking is not, which is the asymmetry
+// §14 asks for: the safe state is the one that persists.
 function setKeyLocked(locked) {
-  if (locked) localStorage.setItem(RECEIVE_ONLY_KEY, "1");
-  else localStorage.removeItem(RECEIVE_ONLY_KEY);
+  if (locked) {
+    localStorage.setItem(RECEIVE_ONLY_KEY, "1");
+    localStorage.removeItem(UNLOCK_UNTIL_KEY);
+  } else {
+    localStorage.setItem(RECEIVE_ONLY_KEY, "1");
+    localStorage.setItem(UNLOCK_UNTIL_KEY, String(Date.now() + UNLOCK_MINUTES * 60000));
+  }
   renderDeviceSection();
 }
 
 function renderDeviceSection() {
   const locked = keyLocked();
+  const left = unlockMinutesLeft();
   // The state first, then the control that changes it, so what the
   // button does is read in the light of what is true now.
   aoReceiveOnlyEl.textContent = locked
     ? "Your key stays here. This device won't hand it to another one, so the prompt that " +
       "would send it never comes up. Leave it locked unless you're adding a device from here."
-    : "This device can hand your key to another one, which is what adding a device from here " +
-      "needs. Lock it again afterwards.";
-  aoAllowSendBtn.textContent = locked ? "unlock this device" : "lock key to this device";
+    : "This device can hand your key to another one for the next " + left +
+      (left === 1 ? " minute" : " minutes") + ", which is what adding a device from here " +
+      "needs. It locks itself again after that.";
+  aoAllowSendBtn.textContent = locked
+    ? "unlock for " + UNLOCK_MINUTES + " minutes"
+    : "lock key to this device";
   renderTransfers();
 }
 
