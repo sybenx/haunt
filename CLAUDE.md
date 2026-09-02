@@ -81,16 +81,27 @@ useful. The fragment keeps those details out of every request log on the way. Wh
 amount to is a temporary public key rather than the identity itself, so photographing the
 code achieves nothing.
 
-Both devices then work out the same five figures, derived from both temporary keys and from
-a random number each device committed to before it saw the other's, and the person checks
-them. The device holding the key sends it only after its owner has read a line naming what
-the other device claims to be, and the device receiving it stores nothing until its owner
-agrees to the identity that arrived. The key travels as an encrypted message over public
-relays rather than over the group's own, because a bothy delivers that kind of message to
-its owner alone. Neither joining nor moving to a second device ever asks anyone to paste a
-secret into a box, in either direction. The one place a key is typed in is bringing an
-identity that already exists somewhere else, and that is something a person goes and finds
-behind the account icon rather than something Hearth asks them for.
+The device receiving the key then shows five figures, derived from both temporary keys and
+from a random number each device committed to before it saw the other's, and the person
+types them into the device holding the key. Typed rather than compared, because a screen
+offering one thing to check and a button underneath it is a check that will sometimes not
+happen: people moving quickly press the only control there is. A number that has to be
+carried between two screens cannot be entered by somebody who never read the second one.
+Five of them because no secret anybody already holds is five figures long, so the shape of
+the field says on its own that this is not a password being asked for. Five wrong entries
+end the attempt, and the same device is refused a second one for an hour, because every
+chance an attacker gets comes from starting again rather than from typing again.
+
+The device holding the key sends it only after its owner has also read a line naming what
+the other device claims to be — the one thing a matching number cannot settle, since a page
+that really is the far end will show a matching number — and the device receiving it stores
+nothing until its owner agrees to the identity that arrived. The key travels as an
+encrypted message over public relays rather than over the group's own, because a bothy
+delivers that kind of message to its owner alone. Neither joining nor moving to a second
+device ever asks anyone to paste a secret into a box, in either direction. The one place a
+key is typed in is bringing an identity that already exists somewhere else, and that is
+something a person goes and finds behind the account icon rather than something Hearth asks
+them for.
 
 That transfer follows an outside specification rather than something invented here, so a
 key can move between Hearth and any other client that implements it. The specification is

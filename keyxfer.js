@@ -16,10 +16,16 @@
    message kinds and the wrap handling, so the second flow is a few
    branches rather than a second protocol.
 
+   The code goes one way only. The device receiving the key shows
+   five digits and the device holding it types them in, because a
+   number that has to be carried between two screens cannot be
+   passed by somebody who never looked at the second one, and two
+   codes side by side with a button under them can.
+
    The one thing this file will not do is decide. It hands the
-   screen a code and waits: a key is only ever released after the
-   person holding it says so, and only ever stored after the person
-   receiving it says so.
+   screen a code to show, or a code to check, and waits: a key is
+   only ever released after the person holding it says so, and only
+   ever stored after the person receiving it says so.
    ============================================================ */
 (function (global) {
 "use strict";
@@ -84,6 +90,12 @@ const SINCE_BACKDATE = 172800;    // §11.5, two days
 const ZEROIZE_AFTER_MS = 60000;   // §7 step 18, §8 step 18
 const MAX_PENDING = 5;            // §8, pending requests per session
 const SAS_LIST_MAX = 3;           // §9, codes shown at once
+const MAX_ATTEMPTS = 5;           // §9, code entries per session
+// §9: a burner this device has already failed a code against is
+// refused a second session, and three failed sessions in an hour are
+// something the person is told about rather than left to notice.
+const FAILURE_MEMORY_MS = 3600000;
+const FAILED_SESSIONS_BEFORE_WARNING = 3;
 // §11.4's SLACK, and normative rather than a choice made here: a
 // rumor's own created_at is set by the other device's clock, two
 // phones disagree by a minute often enough that a window with no
@@ -351,12 +363,16 @@ function tagValue(tags, name) {
    before it learns the other's, which is what stops somebody in
    the middle from picking a nonce that makes two different codes
    match: they have to commit to a value before they can see what
-   it must match, and each session gives them exactly one guess.
+   it must match, and each session gives them exactly one guess
+   that either works or is a number the person is about to type
+   somewhere it will be refused.
 
    Five, and not six or four, because no secret anybody holds is
    five digits long. A bank PIN is four and a message code is six,
    so a five-position field matches nothing a person could be
-   phished into reaching for.
+   phished into reaching for, and every honest transfer teaches
+   that this is a number read off another screen rather than one
+   already known.
    ============================================================ */
 async function sasCommit(contactingPubHex, nonce) {
   return toHex(await S.utils.sha256(concat(
@@ -687,6 +703,78 @@ function relayPool(urls, burner, onEvent, onHealth) {
    screen reports rather than something the session rules on. */
 
 /* ============================================================
+   what a failed code costs (qrst §9)
+
+   Attempts inside one session buy an attacker nothing: their value
+   was fixed when the nonces were revealed, so retyping can only
+   fail against the same number. Every chance they get comes from a
+   *new* session, which is why the expensive thing is starting one
+   again rather than typing again.
+
+   Two records, both kept for an hour. The burners this device has
+   failed a code against, so that rescanning a screen still showing
+   the same QR cannot quietly reuse the same peer — the far side has
+   no way to know a code was failed, so refusing has to happen here.
+   And how many sessions have failed, so that a third one in an hour
+   can say that this pattern is what interference looks like, rather
+   than leaving somebody to conclude they keep mistyping.
+
+   In localStorage because an hour outlasts a reload. A device with
+   no storage keeps them for the life of the page, which is weaker
+   than the specification asks and better than dropping the rule.
+   ============================================================ */
+const FAILED_BURNERS_KEY = "qrst:failed-burners";
+const FAILED_SESSIONS_KEY = "qrst:failed-sessions";
+const memoryFallback = new Map();
+
+function readRecord(key) {
+  let raw = memoryFallback.get(key);
+  try {
+    if (global.localStorage) raw = global.localStorage.getItem(key);
+  } catch (err) {
+    // Storage disabled or partitioned away. The fallback above is
+    // what this device gets.
+  }
+  let parsed;
+  try { parsed = JSON.parse(raw || "[]"); } catch (err) { parsed = []; }
+  if (!Array.isArray(parsed)) parsed = [];
+  const cutoff = Date.now() - FAILURE_MEMORY_MS;
+  return parsed.filter((row) => row && typeof row.at === "number" && row.at > cutoff);
+}
+
+function writeRecord(key, rows) {
+  const raw = JSON.stringify(rows.slice(-64));
+  memoryFallback.set(key, raw);
+  try {
+    if (global.localStorage) global.localStorage.setItem(key, raw);
+  } catch (err) {
+    // As above.
+  }
+}
+
+// Whether this device has already failed a code against that
+// burner, and so must not start a second session with it.
+function burnerRefused(pubHex) {
+  return readRecord(FAILED_BURNERS_KEY).some((row) => row.burner === pubHex);
+}
+
+function rememberFailure(pubHex) {
+  const burners = readRecord(FAILED_BURNERS_KEY);
+  burners.push({ burner: pubHex, at: Date.now() });
+  writeRecord(FAILED_BURNERS_KEY, burners);
+  const sessions = readRecord(FAILED_SESSIONS_KEY);
+  sessions.push({ at: Date.now() });
+  writeRecord(FAILED_SESSIONS_KEY, sessions);
+  return sessions.length;
+}
+
+// Three in an hour is the point at which the person is told that
+// this is what somebody interfering looks like.
+function failuresWorthMentioning() {
+  return readRecord(FAILED_SESSIONS_KEY).length >= FAILED_SESSIONS_BEFORE_WARNING;
+}
+
+/* ============================================================
    a session
 
    One transfer attempt, ten minutes, one burner. The caller hands
@@ -715,6 +803,11 @@ function startSession(opts) {
   let pool = null;
   let finished = false;
   let multiSeen = false;
+  // §9: five code entries, counted across the session rather than
+  // per peer, because the budget exists to cover a person working
+  // through the two or three codes a second scanner put on the far
+  // screen as well as their own mistypes.
+  let attemptsLeft = MAX_ATTEMPTS;
   let scanned = opts.scanned || null;       // what the QR said, when we scanned one
   const relays = (scanned ? scanned.relays : (opts.relays || DEFAULT_RELAYS)).slice(0, 4);
 
@@ -750,6 +843,26 @@ function startSession(opts) {
     const rumor = await makeRumor(burner.pub, kind, tags.concat([["v", VERSION]]), content);
     const wrap = await wrapRumor(rumor, burner.priv, toPubHex);
     return pool ? pool.publish(wrap) : 0;
+  }
+
+  // §9's ABORT. A courtesy and nothing more: its absence means
+  // nothing and the far side must not depend on it. It is still
+  // worth actually sending, which takes a moment — sealing and
+  // wrapping are asynchronous — so a caller that is about to end
+  // the session has to wait for this rather than closing the
+  // sockets out from under it.
+  function abortTo(peerHex) {
+    return send(KINDS.ABORT, [["burner", burner.pub]], "", peerHex).catch(() => 0);
+  }
+
+  // The same, for the callers that end the session immediately
+  // afterwards. Bounded, because a message nobody is required to
+  // receive must not be able to hold up the screen.
+  function abortThen(peerHex, after) {
+    let done = false;
+    const go = () => { if (!done) { done = true; after(); } };
+    abortTo(peerHex).then(() => setTimeout(go, 200), go);
+    setTimeout(go, 1500);
   }
 
   // Everything a rumor has to satisfy before it is looked at as a
@@ -869,6 +982,21 @@ function startSession(opts) {
       return;
     }
 
+    /* ---- the other side giving up (§9) ---- */
+    // Sent by a holder whose person could not enter this device's
+    // code. Nothing is proved by it and nothing depends on it — a
+    // session that never receives one times out as usual — but a
+    // joiner that does receive one can stop showing a code nobody
+    // is going to type and put a fresh one up instead.
+    if (rumor.kind === KINDS.ABORT) {
+      const peer = peers.get(from);
+      if (!peer) return;
+      peers.delete(from);
+      if (awaitingConsent === from) awaitingConsent = null;
+      emit("peer-gone", { peer: from });
+      return;
+    }
+
     /* ---- anything else this file does not speak ---- */
     // A client may carry its own messages inside a session it has
     // already established — this file has no opinion on what, and
@@ -911,7 +1039,7 @@ function startSession(opts) {
     if (role === "holder") {
       askConsent(peer);
     } else {
-      emit("sas", { list: sasList(), single: !!scanned });
+      emit("sas", { list: sasList() });
       maybeArrived(peer);
     }
   }
@@ -937,7 +1065,7 @@ function startSession(opts) {
   function maybeArrived(peer) {
     if (!peer.held || !peer.sas || peer.announced) return;
     peer.announced = true;
-    emit("arrived", { peer: peer.burner, sas: peer.sas, single: !!scanned });
+    emit("arrived", { peer: peer.burner, sas: peer.sas });
   }
 
   // §9: the three most recent, newest first, so a person
@@ -971,11 +1099,54 @@ function startSession(opts) {
     burner: burner.pub,
     uri: null,
 
+    // Holder, both flows: the five digits the other device is
+    // showing, typed here by the person holding both. §9 — the
+    // code is never sent anywhere, never compared by the far side,
+    // and never accepted on the far side's say-so. It is checked
+    // against the number this device worked out for itself, which
+    // is the one thing an attacker in the middle cannot influence.
+    //
+    // Returns what the screen should say, and nothing else
+    // happens: a matching code makes the key releasable, it does
+    // not release it. The tap that does is `approve` below.
+    submitCode(peerHex, typed) {
+      const peer = peers.get(peerHex);
+      if (!peer || !peer.sas || finished) return { ok: false, reason: "gone" };
+      if (attemptsLeft <= 0) return { ok: false, reason: "spent", left: 0 };
+      // Exactly five digits. A field that quietly accepts more is a
+      // field that cannot tell somebody the length is the point.
+      const value = String(typed || "").trim();
+      if (!/^[0-9]{5}$/.test(value)) return { ok: false, reason: "shape", left: attemptsLeft };
+      if (value === peer.sas.digits) {
+        peer.verified = true;
+        return { ok: true };
+      }
+      attemptsLeft--;
+      if (attemptsLeft > 0) return { ok: false, reason: "mismatch", left: attemptsLeft };
+      // Spent. §9: the session is dead, the burner goes, and this
+      // peer is refused a second session for an hour, because the
+      // far side is still showing the same QR and has no way to
+      // know a code was ever failed. Refusing has to happen here or
+      // rescanning that screen quietly reuses the same burner.
+      const failures = rememberFailure(peerHex);
+      const worthMentioning = failuresWorthMentioning();
+      // The session is over from this moment — the guard above
+      // refuses anything further — but the sockets stay up just
+      // long enough for the far side to be told, so it can stop
+      // showing a code nobody is going to type.
+      abortThen(peerHex, () => stop("failed", { failures, worthMentioning }));
+      return { ok: false, reason: "spent", left: 0 };
+    },
+
     // Holder, both flows: release the key to this peer. Reached
-    // only from a deliberate tap on the device that holds it.
+    // only after the code was entered and matched, and then only
+    // from a deliberate tap on the device that holds it.
     async approve(peerHex, privkeyHex, lock) {
       const peer = peers.get(peerHex);
       if (!peer || !peer.sas || finished) return;
+      // The gate, and it is here rather than on the screen so that
+      // no arrangement of buttons can get past it.
+      if (!peer.verified) return;
       peer.sent = true;
       await send(KINDS.PAYLOAD,
         [["burner", burner.pub], ["lock", lock || "device"]], privkeyHex, peerHex);
@@ -988,17 +1159,30 @@ function startSession(opts) {
       zeroizeTimer = setTimeout(() => stop("done"), ZEROIZE_AFTER_MS);
     },
 
-    // Holder, flow B: this request is not mine. The session goes
-    // back to waiting, or on to the next request queued behind it.
+    // Holder, both flows: this request is not mine.
     deny(peerHex) {
       const peer = peers.get(peerHex);
       if (peer) { peer.denied = true; peers.delete(peerHex); }
       if (awaitingConsent === peerHex) awaitingConsent = null;
+      // §8 step 13: in flow B this device is showing a code that
+      // anybody may still scan, so a denial moves on to whoever
+      // else is queued, or back to waiting. The person being added
+      // may well be the next one along.
+      //
+      // §7 step 13 is the opposite and says so: in flow A this
+      // device scanned one code and is talking to exactly one
+      // burner, so declining it leaves nobody to wait for. Saying
+      // "waiting for your other device" there is waiting for
+      // something that cannot arrive.
+      if (flow === "A") {
+        abortThen(peerHex, () => stop("declined"));
+        return;
+      }
+      // So the far side can stop showing a code and say what
+      // happened, rather than waiting out ten minutes for somebody
+      // who has already said no.
+      abortTo(peerHex);
       const next = nextPending();
-      // §8 step 13: a denial moves on to whoever else is waiting,
-      // or back to waiting. It does not end the session, because
-      // the person the user is actually adding may be the next one
-      // in the queue.
       if (next) askConsent(next);
       else emit("waiting");
     },
@@ -1048,6 +1232,17 @@ function startSession(opts) {
     cancel() { stop("cancelled"); },
     peers() { return sasList(); },
 
+    // The wraps in hand, newest first. One is the ordinary case;
+    // more than one means two devices both got a code typed at
+    // them, which takes somebody entering two codes on purpose.
+    held() {
+      const out = [];
+      for (const peer of peers.values()) {
+        if (peer.held && peer.sas) out.push({ peer: peer.burner, sas: peer.sas });
+      }
+      return out.reverse();
+    },
+
     // How each relay is getting on, for a screen that wants to say
     // so and for anybody reading a report of a transfer that would
     // not start.
@@ -1081,6 +1276,17 @@ function startSession(opts) {
       return;
     }
 
+    // §9: a burner this device has already failed a code against
+    // does not get a second session. The far side is still showing
+    // the same QR — it cannot know a code was failed — so a person
+    // who rescans that screen would otherwise hand the same peer
+    // another attempt, which is the one thing the attempt budget
+    // exists to prevent.
+    if (role === "holder" && burnerRefused(scanned.burner)) {
+      stop("refused", { worthMentioning: failuresWorthMentioning() });
+      return;
+    }
+
     // The scanning device is the one that made contact, so it is
     // the one that commits to a nonce before it can see the
     // other's.
@@ -1104,6 +1310,9 @@ global.Keyxfer = {
   DEFAULT_RELAYS,
   KINDS,
   SESSION_SECONDS,
+  MAX_ATTEMPTS,
+  burnerRefused,
+  failuresWorthMentioning,
   // The pieces below are exported for the vector checker, which
   // has to be able to reach every step the specification pins a
   // known answer to.

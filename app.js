@@ -81,6 +81,14 @@ const xCamEl = document.getElementById("xCam");
 const xVideoEl = document.getElementById("xVideo");
 const xSasEl = document.getElementById("xSas");
 const xDigitsEl = document.getElementById("xDigits");
+const xCodeEl = document.getElementById("xCode");
+const xCodeLabelEl = document.getElementById("xCodeLabel");
+const xCodeCellsEl = document.getElementById("xCodeCells");
+const xCodeInput = document.getElementById("xCodeInput");
+const xCodeFailEl = document.getElementById("xCodeFail");
+const xAckEl = document.getElementById("xAck");
+const xAckBox = document.getElementById("xAckBox");
+const xAckTextEl = document.getElementById("xAckText");
 const xListEl = document.getElementById("xList");
 const xMultiEl = document.getElementById("xMulti");
 const xButtonsEl = document.getElementById("xButtons");
@@ -4795,7 +4803,6 @@ function retryTransfer() {
 
 let xfer = null;        // the running session
 let xferRole = null;    // "holder" | "joiner"
-let xferChosen = null;  // in flow A, the code the person tapped
 // What to do if this closes with nothing received, which is only
 // ever set when the transfer was opened from the landing screen and
 // there is no identity behind it to go back to.
@@ -4811,6 +4818,86 @@ const xferRelays = new Map();
 
 function xShow(el, on) { el.hidden = !on; }
 
+/* ---------- the five figures, typed (qrst §9) ----------
+
+   The code is never sent anywhere and never compared by the far
+   side. It appears on the screen of the device receiving the key,
+   goes through a person, and is typed here, which is the one channel
+   somebody sitting in the middle of the relays does not sit on.
+
+   Typed rather than looked at and agreed with, because a screen
+   offering one thing to compare and a button underneath it is a
+   comparison that will sometimes not happen: people moving quickly
+   tap the only control there is. A number that has to be entered
+   cannot be entered by somebody who never read the other device.
+
+   Never called a PIN, never prefilled, and never autofilled from
+   the clipboard. Both devices may be on one machine sharing one
+   clipboard, and an autofill there would hand back exactly what
+   requiring entry took away. */
+function paintCodeCells() {
+  const value = xCodeInput.value;
+  const cells = xCodeCellsEl.querySelectorAll("span");
+  for (let i = 0; i < cells.length; i++) {
+    cells[i].textContent = value[i] || "";
+    cells[i].classList.toggle("on", i < value.length);
+    cells[i].classList.toggle("next", i === value.length);
+  }
+}
+
+function setCodeEntry(code) {
+  xShow(xCodeEl, !!code);
+  xShow(xCodeFailEl, false);
+  xCodeFailEl.textContent = "";
+  // Cleared rather than carried over, so a code typed against one
+  // peer is never sitting in the field when another is offered.
+  xCodeInput.value = "";
+  paintCodeCells();
+  codeSubmit = code ? code.onSubmit : null;
+  if (!code) return;
+  // Says where the number comes from rather than asking for "your
+  // code", which is what keeps somebody from reaching for a secret
+  // they already have when another screen asks the same way.
+  xCodeLabelEl.textContent = code.label;
+  // Focused so the keyboard is up, and it is the only focusable
+  // thing on the screen that a return key does anything with. The
+  // control that releases the key is never focused and never
+  // reached by a default keypress.
+  setTimeout(() => xCodeInput.focus(), 0);
+}
+
+function setAcknowledgement(ack) {
+  xShow(xAckEl, !!ack);
+  xAckBox.checked = false;
+  ackChanged = ack ? ack.onChange : null;
+  // Cleared with the box, not left armed behind it. A tick made for
+  // one peer must not still be arming a control on a later screen.
+  xAckSend = null;
+  if (ack) xAckTextEl.textContent = ack.label;
+}
+
+let codeSubmit = null;
+let ackChanged = null;
+// Only armed by the tick that names the origin, so the control that
+// sends does nothing until it has been.
+let xAckSend = null;
+
+xCodeInput.addEventListener("input", () => {
+  // Digits only, five of them. A field that quietly takes more
+  // cannot tell anybody that the length is the point.
+  const cleaned = xCodeInput.value.replace(/[^0-9]/g, "").slice(0, 5);
+  if (cleaned !== xCodeInput.value) xCodeInput.value = cleaned;
+  paintCodeCells();
+  xShow(xCodeFailEl, false);
+  // Checked as the fifth figure lands rather than behind a button,
+  // because a button here is one more thing between a person and
+  // the answer and adds nothing: the entry is the deliberate act.
+  if (cleaned.length === 5 && codeSubmit) codeSubmit(cleaned);
+});
+
+xCodeCellsEl.addEventListener("click", () => xCodeInput.focus());
+xAckBox.addEventListener("change", () => { if (ackChanged) ackChanged(xAckBox.checked); });
+
 // One place that puts the screen into a state, so no state can
 // leave a control from the previous one lying about.
 function xRender(opts) {
@@ -4823,16 +4910,22 @@ function xRender(opts) {
   xShow(xCamEl, !!opts.camera);
   xShow(xSasEl, !!opts.sas);
   if (opts.sas) xDigitsEl.textContent = opts.sas.digits;
+  setCodeEntry(opts.code || null);
+  setAcknowledgement(opts.ack || null);
   xShow(xListEl, !!opts.list);
   xListEl.innerHTML = "";
   for (const entry of opts.list || []) {
-    const btn = document.createElement("button");
+    // A button only where there is something to choose. Several
+    // codes shown for somebody to type on the other device are a
+    // list to read, and rendering them as controls invites a tap
+    // that does nothing.
+    const row = document.createElement(opts.onPick ? "button" : "div");
     const dg = document.createElement("div");
     dg.className = "xDigits";
     dg.textContent = entry.sas.digits;
-    btn.append(dg);
-    btn.addEventListener("click", () => opts.onPick(entry));
-    xListEl.appendChild(btn);
+    row.append(dg);
+    if (opts.onPick) row.addEventListener("click", () => opts.onPick(entry));
+    xListEl.appendChild(row);
   }
   xButtonsEl.innerHTML = "";
   for (const b of opts.buttons || []) {
@@ -4876,7 +4969,11 @@ function closeTransfer() {
   if (xfer) recordTransport(xfer.transport());
   if (xfer) xfer.cancel();
   xfer = null;
-  xferChosen = null;
+  // §9: the number never outlives the session it belongs to, and
+  // that includes sitting in a field on a screen nobody is looking
+  // at any more.
+  setCodeEntry(null);
+  setAcknowledgement(null);
   xShow(xMultiEl, false);
   xferEl.hidden = true;
   const after = xferOnClose;
@@ -4928,7 +5025,6 @@ function consumePairing() {
 function openPairing(pairing, onClose) {
   consumePairing();
   xferRole = pairing.role;
-  xferChosen = null;
   xferOnClose = onClose || null;
   accountOverlayEl.hidden = true;
   xferEl.hidden = false;
@@ -4960,7 +5056,6 @@ function openPairing(pairing, onClose) {
 
 function openTransfer(role, onClose) {
   xferRole = role;
-  xferChosen = null;
   xferOnClose = onClose || null;
   accountOverlayEl.hidden = true;
   xferEl.hidden = false;
@@ -5140,53 +5235,104 @@ async function onTransferEvent(type, data) {
     return;
   }
 
-  // §7 step 11 and §8 step 12: the tap that releases the key. The
-  // line naming what the other side claims to be is the only
-  // defence against a page that is itself pretending to be the
-  // device being added, which the code comparison cannot catch.
-  if (type === "consent") {
-    const claim = data.origin
-      ? "a browser at " + data.origin
-      : (data.plat ? "a " + data.plat + " device" : "a device");
+  // §7 step 11 and §8 step 12: the screen that releases the key,
+  // and the only one in Hearth that is trying to talk somebody out
+  // of what they are doing.
+  if (type === "consent") { renderConsent(data); return; }
+
+  // §9: the five entries are spent and the session is over. Not an
+  // offer to try again — that is the whole point of the rule — so
+  // the way on is scanning a code that does not exist yet.
+  if (type === "failed") {
+    stopCamera();
     xRender({
       title: "add a device",
-      prompt: "Send your key to " + claim + " showing this?",
-      sas: data.sas,
-      note: "Check that these five figures are what your other device is showing. If they " +
-        "aren't, this isn't your device.",
-      buttons: [
-        { label: "send my key", onClick: () => sendKey(data) },
-        { label: "not mine", quiet: true, onClick: () => xfer && xfer.deny(data.peer) },
-      ],
+      note: (data && data.worthMentioning)
+        ? "That code didn't match, and several transfers have failed here in the last hour. " +
+          "That can mean somebody is interfering rather than that you keep mistyping. Nothing " +
+          "was sent."
+        : "That code didn't match after five tries, so this one is finished and nothing was " +
+          "sent. Start again on both devices and you'll get a fresh code.",
+      buttons: [{ label: "start again", onClick: () => openTransfer(xferRole) }],
     });
     return;
   }
 
-  // The receiving side, waiting. In flow B there is exactly one
-  // device this could be, because this device scanned its code; in
-  // flow A anybody may have scanned ours, so the codes are a list
-  // and the person picks the one their other device is showing.
-  if (type === "sas") {
-    if (data.single) {
+  // §9: this peer has already had its five, so it does not get a
+  // second session. The far device is still showing the same code
+  // and cannot know that, which is why refusing happens here.
+  if (type === "refused") {
+    stopCamera();
+    xRender({
+      title: "add a device",
+      note: "You've already failed the code for that device once. It needs to show a new one: " +
+        "close the screen on your other device and start it again.",
+      buttons: [{ label: "start again", onClick: () => openTransfer(xferRole) }],
+    });
+    return;
+  }
+
+  // The far side gave up on this one. Only worth saying when it is
+  // the request currently on screen.
+  if (type === "peer-gone") {
+    if (xferRole === "joiner") {
       xRender({
         title: "your new device",
-        note: "Your other device should be showing this. Approve it there.",
-        sas: data.list[0].sas,
-        waiting: "waiting for your other device",
-      });
-    } else {
-      xRender({
-        title: "your new device",
-        prompt: "Tap the code your other device shows",
-        list: data.list,
-        onPick: (entry) => { xferChosen = entry.peer; offerLogin(entry.peer); },
+        note: "Your other device stopped. Start again there and it'll show a fresh code.",
+        buttons: [{ label: "close", onClick: closeTransfer }],
       });
     }
     return;
   }
 
+  // §7 step 12: the receiving side shows its number and waits. It
+  // is not asked to compare anything — the number goes the other
+  // way, and the device holding the key is the one that has to
+  // type it. Where somebody else has also scanned this screen there
+  // are two or three numbers rather than one, and they are all
+  // shown: only the one computed with the device actually being
+  // talked to will be accepted, so nobody has to work out which is
+  // which.
+  if (type === "sas") {
+    // A second device answering while a key is already in hand must
+    // not redraw the screen underneath somebody who is being asked
+    // whose identity they are about to adopt. The new code is in the
+    // list either way; it does not have to interrupt to get there.
+    if (xfer.held().length > 0) return;
+    if (data.list.length === 1) {
+      xRender({
+        title: "your new device",
+        prompt: "Type this on your other device",
+        sas: data.list[0].sas,
+        note: "It's asking for five figures. These are them.",
+        waiting: "waiting for your other device",
+      });
+    } else {
+      xRender({
+        title: "your new device",
+        prompt: "Type one of these on your other device",
+        note: "More than one device answered this code. Only the one that's really yours " +
+          "will be accepted, so you don't have to know which is which.",
+        list: data.list,
+        waiting: "waiting for your other device",
+      });
+    }
+    return;
+  }
+
+  // §7 step 16: a key is in hand. One is the ordinary case and goes
+  // straight to the question of whose it is; two means two devices
+  // were both told the right number, which takes somebody typing
+  // two codes deliberately, and then the person says which.
   if (type === "arrived") {
-    if (data.single || xferChosen === data.peer) offerLogin(data.peer);
+    const held = xfer.held();
+    if (held.length <= 1) { offerLogin(data.peer); return; }
+    xRender({
+      title: "your new device",
+      prompt: "Tap the code the device you're adding from is showing",
+      list: held,
+      onPick: (entry) => offerLogin(entry.peer),
+    });
     return;
   }
 
@@ -5217,11 +5363,13 @@ async function onTransferEvent(type, data) {
       peer: data.peer,
       multi: false,
     });
+    // No code on this screen. Nothing is being compared any more —
+    // it was compared to get here — and leaving it up invites
+    // somebody to think there is still something to check.
     xRender({
       title: "add a device",
       note: "Your key is on its way. Your other device will ask you to confirm who you are " +
         "before it keeps it.",
-      sas: data.sas,
       waiting: "waiting for your other device",
     });
     return;
@@ -5229,6 +5377,19 @@ async function onTransferEvent(type, data) {
 
   if (type === "waiting") {
     xRender({ title: "add a device", waiting: "waiting for your other device" });
+    return;
+  }
+
+  // Flow A: the one device this was talking to was turned down, so
+  // there is nothing left in the session to wait for.
+  if (type === "declined") {
+    stopCamera();
+    xRender({
+      title: "add a device",
+      note: "Nothing was sent. If that was your device after all, start again on both and " +
+        "it'll show a new code.",
+      buttons: [{ label: "start again", onClick: () => openTransfer(xferRole) }],
+    });
     return;
   }
 
@@ -5257,6 +5418,88 @@ async function onTransferEvent(type, data) {
     xFail(data);
     return;
   }
+}
+
+/* ---------- the release screen (qrst §9) ----------
+
+   Two things are asked here and they guard different things. The
+   code proves the device on the other end is the one in front of
+   you, and it is typed rather than agreed with. The prompt names
+   what that device claims to be, which is the only thing standing
+   against a page that really is the far end and shows a matching
+   number: against that, a person reading the line and declining is
+   the whole of the defence.
+
+   The heading contradicts what the person believes, and is meant to.
+   They have just scanned a code, and scanning a code means signing
+   in nearly everywhere else; saying so before the buttons are read
+   is what turns a reflex into a decision. It is not unfriendly copy
+   to be softened later.
+
+   Declining is the loud control. Somebody moving quickly, on
+   autopilot, has to land on not sending — so the control that sends
+   is the quiet one, is never focused, and never answers a return
+   key. The one that sends says what it does rather than agreeing:
+   nobody taps "send my key to that browser" without having formed a
+   belief about it, and everybody taps "OK". */
+function renderConsent(data) {
+  const claim = data.origin
+    ? "a browser at " + data.origin
+    : (data.plat ? "a " + data.plat + " device" : "a device");
+  // §9: maximum friction for a web origin, ordinary friction for
+  // anything else. Adding a device is a normal thing to do, and an
+  // alarm raised every time is one people stop reading — which
+  // leaves nothing for the case that is almost always an attack.
+  const web = !!data.origin;
+
+  const send = () => sendKey(data);
+  const decline = { label: "don't send", onClick: () => xfer && xfer.deny(data.peer) };
+
+  xRender({
+    title: "This is not a login",
+    prompt: "You are about to give " + claim + " your key.",
+    note: "This is the identity itself, not a permission you can take back later. Whoever " +
+      "holds it is you, on Nostr, permanently — there is no way to change the key afterwards. " +
+      "The list of relays this device uses goes with it.",
+    code: {
+      label: "Type the five figures shown on your other device",
+      onSubmit: (typed) => {
+        const result = xfer.submitCode(data.peer, typed);
+        if (result.ok) {
+          // The number matched. The key still does not move until
+          // somebody presses the thing that moves it.
+          xRender({
+            title: "This is not a login",
+            prompt: "You are about to give " + claim + " your key.",
+            note: "That's the right device. Sending is the last step and it cannot be undone.",
+            ack: web ? {
+              label: "I mean to give my key to " + data.origin + ", and I know it keeps a " +
+                "working copy for good",
+              onChange: (on) => { xAckSend = on ? send : null; },
+            } : null,
+            buttons: [
+              decline,
+              web
+                ? { label: "send my key to " + data.origin, quiet: true,
+                    onClick: () => { if (xAckSend) xAckSend(); } }
+                : { label: "send my key to that device", quiet: true, onClick: send },
+            ],
+          });
+          return;
+        }
+        if (result.reason === "mismatch") {
+          xCodeInput.value = "";
+          paintCodeCells();
+          xCodeFailEl.textContent = result.left === 1
+            ? "That isn't the code your other device is showing. One more try."
+            : "That isn't the code your other device is showing. " + result.left + " tries left.";
+          xShow(xCodeFailEl, true);
+        }
+        // "spent" ends the session, and the session says so itself.
+      },
+    },
+    buttons: [decline],
+  });
 }
 
 async function sendKey(data) {
